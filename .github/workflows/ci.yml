@@ -16,3 +16,29 @@ jobs:
       - run: .venv/bin/python -m pytest -q --cov=runlog --cov-report=term-missing --cov-fail-under=85
       - run: bash examples/quickstart.sh
       - run: .venv/bin/python examples/plot_record.py
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: runlog
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -e '.[dev,mysql]'
+      - run: bash examples/quickstart.sh
+      - run: .venv/bin/python -m pytest -q tests/test_mysql.py
+        env:
+          RUNLOG_TEST_MYSQL_URL: mysql+pymysql://root@127.0.0.1:3306/runlog

@@ -194,6 +194,59 @@ Use this query to list steady RMS against reduced velocity for records with no f
   --format csv
 ```
 
+## SQL
+
+SQLite is the default catalog. It stores a local file and needs no server.
+Export the catalog when users need a shared database.
+The export uses SQLAlchemy Core and supports MySQL 8.
+Install the `mysql` extra to use export.
+
+Set the database URL in the environment. Keep credentials outside code and SQL files.
+
+```bash
+export RUNLOG_DB_URL='mysql+pymysql://runlog@db.example/runlog'
+.venv/bin/python -m runlog export --dataset examples/output/dataset
+```
+
+Export prints the row count for each table.
+Use `--replace` to drop and recreate existing catalog tables.
+MySQL commits table changes before it inserts rows. All inserts use one transaction.
+
+The six named queries in `examples/queries.sql` support SQLite 3.35 or later and MySQL 8.
+Run a named query on the local catalog:
+
+```bash
+.venv/bin/python -m runlog query --dataset examples/output/dataset \
+  --file examples/queries.sql --name check_failure_rates --format csv
+```
+
+This query counts failed results and calculates their share of all check results:
+
+```sql
+SELECT check_name,
+       SUM(CASE WHEN status = 'fail' THEN 1 ELSE 0 END) AS failure_count,
+       1e0 * SUM(CASE WHEN status = 'fail' THEN 1 ELSE 0 END) / COUNT(*) AS failure_rate
+FROM checks
+GROUP BY check_name
+ORDER BY check_name;
+```
+
+The demo returns this output:
+
+```text
+check_name,failure_count,failure_rate
+clipping,1,0.015625
+duration,0,0.0
+flatline,1,0.015625
+gaps,1,0.0625
+non_finite,1,0.015625
+sample_rate,0,0.0
+spikes,1,0.015625
+time_monotonic,0,0.0
+```
+
+CI runs all named queries on MySQL 8.4 and compares their results with SQLite.
+
 ## Python API
 
 ```python

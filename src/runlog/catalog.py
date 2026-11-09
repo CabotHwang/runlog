@@ -87,3 +87,22 @@ def query(dataset: str | Path, sql: str, params: tuple = ()) -> list[dict]:
         connection.set_authorizer(lambda action, *_: sqlite3.SQLITE_OK if action in allowed
                                   else sqlite3.SQLITE_DENY)
         return [dict(row) for row in connection.execute(sql, params)]
+
+
+def named_queries(path: str | Path) -> dict[str, str]:
+    """Read SQL statements separated by named comment headers."""
+    queries, lines, name = {}, [], None
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if line.startswith("-- name:"):
+            if name is not None:
+                queries[name] = "\n".join(lines).strip()
+            name, lines = line.removeprefix("-- name:").strip(), []
+            if not name or name in queries:
+                raise ValueError("Query names must be non-empty and unique")
+        elif name is not None:
+            lines.append(line)
+    if name is not None:
+        queries[name] = "\n".join(lines).strip()
+    if not queries or not all(queries.values()):
+        raise ValueError("SQL file must contain non-empty named queries")
+    return queries

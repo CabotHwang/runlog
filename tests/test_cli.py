@@ -72,3 +72,66 @@ def test_module_entrypoint():
                             env=os.environ | {"PYTHONPATH": "src"}, capture_output=True, text=True)
     assert result.returncode == 0
     assert "ingest" in result.stdout
+
+
+def test_export_cli_environment_and_replace(demo_dataset, tmp_path, monkeypatch, capsys):
+    from sqlalchemy import create_engine, inspect
+
+    base = ["export", "--dataset", str(demo_dataset)]
+    monkeypatch.delenv("RUNLOG_DB_URL", raising=False)
+    assert main(base) == 2
+    assert "RUNLOG_DB_URL" in capsys.readouterr().err
+    first = f"sqlite:///{tmp_path / 'first.sqlite'}"
+    second = f"sqlite:///{tmp_path / 'second.sqlite'}"
+    monkeypatch.setenv("RUNLOG_DB_URL", first)
+    assert main(base) == 0
+    output = capsys.readouterr().out
+    assert all(value in output for value in ("records", "checks", "segments", "16", "320", "81"))
+    assert main(base) == 2
+    assert "exist" in capsys.readouterr().err
+    assert main([*base, "--replace"]) == 0
+    assert main([*base, "--url", second]) == 0
+    engine = create_engine(second)
+    assert len(inspect(engine).get_table_names()) == 5
+    engine.dispose()
+
+
+def test_export_cli_masks_errors(demo_dataset, monkeypatch, capsys):
+    from uuid import uuid4
+    from sqlalchemy.exc import SQLAlchemyError
+    import runlog.export as module
+
+    secret = uuid4().hex
+
+    def fail(*args, **kwargs):
+        raise SQLAlchemyError(secret)
+
+    monkeypatch.setattr(module, "create_engine", fail)
+    assert main(["export", "--dataset", str(demo_dataset), "--url",
+                 f"mysql+pymysql://root:{secret}@localhost/runlog"]) == 2
+    output = capsys.readouterr()
+    assert secret not in output.out + output.err and "***" in output.err
+
+
+def test_optional_export_dependency(demo_dataset, monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "runlog.export", None)
+    assert main(["query", "--dataset", str(demo_dataset), "SELECT COUNT(*) FROM records"]) == 0
+    assert main(["export", "--dataset", str(demo_dataset), "--url", "sqlite://"]) == 2
+    assert "mysql extra" in capsys.readouterr().err
+
+
+def test_named_query_cli(demo_dataset, capsys):
+    from runlog.catalog import named_queries, query
+
+    base = ["query", "--dataset", str(demo_dataset), "--file", "examples/queries.sql"]
+    for name, sql in named_queries("examples/queries.sql").items():
+        capsys.readouterr()
+        assert main([*base, "--name", name, "--format", "json"]) == 0
+        assert json.loads(capsys.readouterr().out) == query(demo_dataset, sql)
+
+
+@pytest.mark.parametrize("options", [[], ["--file", "examples/queries.sql"], ["--name", "a"],
+    ["SELECT 1", "--name", "a"], ["SELECT 1", "--file", "examples/queries.sql", "--name", "a"],
+    ["--file", "examples/queries.sql", "--name", "missing"], ["--file", "absent.sql", "--name", "a"]])
+def test_named_query_cli_errors(demo_dataset, options):
+    assert main(["query", "--dataset", str(demo_dataset), *options]) == 2

@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import os
 import sqlite3
 import sys
 from dataclasses import asdict
@@ -9,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 from pyarrow import ArrowException
 
-from .catalog import build_catalog, query
+from .catalog import build_catalog, named_queries, query
 from .checks import CheckConfig, run_checks
 from .ingest import load_record, read_csv, read_openfast_out, write_record
 from .manifest import read_analysis, verify_dataset
@@ -34,8 +35,13 @@ def _parser() -> argparse.ArgumentParser:
     tag.add_argument("--config", type=Path)
     commands.add_parser("index")
     commands.add_parser("verify")
+    export = commands.add_parser("export")
+    export.add_argument("--url")
+    export.add_argument("--replace", action="store_true")
     sql = commands.add_parser("query")
-    sql.add_argument("sql")
+    sql.add_argument("sql", nargs="?")
+    sql.add_argument("--file", type=Path)
+    sql.add_argument("--name")
     sql.add_argument("--format", choices=("table", "csv", "json"), default="table")
     for command in commands.choices.values():
         command.add_argument("--dataset", required=True, type=Path)
@@ -47,6 +53,28 @@ def _json(path: Path | None) -> dict:
     if not isinstance(data, dict):
         raise ValueError("JSON input must contain an object")
     return data
+
+
+def _query_sql(args: argparse.Namespace) -> str:
+    if args.sql is not None and args.file is None and args.name is None:
+        return args.sql
+    if args.sql is not None or args.file is None or args.name is None:
+        raise ValueError("Use inline SQL or both --file and --name")
+    queries = named_queries(args.file)
+    if args.name not in queries:
+        raise ValueError("Query name not found")
+    return queries[args.name]
+
+
+def _export_catalog(args: argparse.Namespace) -> None:
+    url = args.url or os.environ.get("RUNLOG_DB_URL")
+    if not url:
+        raise ValueError("Set --url or RUNLOG_DB_URL")
+    try:
+        from .export import export_catalog
+    except ImportError:
+        raise ValueError("Install runlog with the mysql extra to export") from None
+    _print_rows([export_catalog(args.dataset, url, args.replace)], "table")
 
 
 def _ingest(args: argparse.Namespace) -> int:
@@ -145,9 +173,11 @@ def main(argv: list[str] | None = None) -> int:
             if errors:
                 return 1
             print("Dataset verified.")
+        elif args.command == "export":
+            _export_catalog(args)
         else:
-            _print_rows(query(args.dataset, args.sql), args.format)
+            _print_rows(query(args.dataset, _query_sql(args)), args.format)
         return 0
-    except (ValueError, TypeError, KeyError, OSError, OverflowError, ArrowException, sqlite3.Error) as exc:
+    except (ValueError, TypeError, KeyError, OSError, OverflowError, RuntimeError, ArrowException, sqlite3.Error) as exc:
         print(f"runlog: {exc}", file=sys.stderr)
         return 2
