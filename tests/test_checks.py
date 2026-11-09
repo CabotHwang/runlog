@@ -90,8 +90,50 @@ def test_zero_mad_with_known_quantum():
     assert result.value == 1
 
 
-def test_inferred_floors_with_no_smaller_reference_step():
-    assert sample_rate(np.r_[np.arange(100) * 0.1, 10.05], "r").status == "pass"
+def test_isolated_timing_error_does_not_set_resolution():
+    time = np.arange(1000) * 0.01
+    time[500:] += 0.005
+    result = sample_rate(time, "r")
+    assert result.status == "fail"
+    assert result.threshold == CheckConfig().sample_rate_rel_tol
+    assert sample_rate(np.r_[np.arange(100) * 0.1, 10.05], "r").status == "fail"
+
+
+@pytest.mark.parametrize("hz", [30, 60, 128])
+def test_sample_rate_accepts_millisecond_rounding(hz):
+    time = np.round(np.arange(hz * 20) / hz, 3)
+    assert sample_rate(time, "r").status == "pass"
+
+
+@pytest.mark.parametrize("count,status", [(49, "fail"), (50, "pass")])
+def test_resolution_requires_five_percent_of_regular_steps(count, status):
+    steps = np.full(1000, 0.01)
+    steps[::20][:count] += 0.001
+    time = np.r_[0, np.cumsum(steps)]
+    assert sample_rate(time, "r").status == status
+    assert sample_rate(time, "r", CheckConfig(resolution_min_fraction=0.06)).status == "fail"
+
+
+@pytest.mark.parametrize("expected,status", [(50, "fail"), (100, "pass")])
+def test_expected_sample_rate(expected, status):
+    config = CheckConfig(expected_rate_hz=expected)
+    result = sample_rate(np.arange(1000) * 0.01, "r", config)
+    assert result.status == status
+    assert f"expected {expected} Hz" in result.message
+    assert "measured 100 Hz" in result.message
+    assert sample_rate(np.arange(9), "r", config).status == "not_testable"
+
+
+def test_expected_rate_uses_relative_tolerance_despite_rounding():
+    time = np.round(np.arange(2560) / 128, 3)
+    result = sample_rate(time, "r", CheckConfig(expected_rate_hz=120))
+    assert result.status == "fail"
+    assert result.threshold == CheckConfig().sample_rate_rel_tol
+    assert "expected 120 Hz" in result.message
+    assert "measured 125 Hz" in result.message
+
+
+def test_quantum_with_no_smaller_reference_step():
     assert spikes(np.r_[np.zeros(99), 1], "r", "x").status == "pass"
 
 
@@ -180,3 +222,18 @@ def test_hampel_quiet_then_large_sine():
 def test_invalid_spike_window(window):
     with pytest.raises(ValueError, match="spike_window"):
         CheckConfig(spike_window=window)
+
+
+def test_spikes_white_noise_false_alarm_rate():
+    clean = sum(spikes(np.random.default_rng(seed).normal(size=100_000), "r", "x").value == 0
+                for seed in range(20))
+    assert clean >= 19
+
+
+@pytest.mark.parametrize("index", [0, 500, 999])
+def test_spikes_detects_ten_sigma_impulse(index):
+    values = np.random.default_rng(0).normal(size=1000)
+    values[index] = 10.0
+    result = spikes(values, "r", "x")
+    assert result.status == "fail"
+    assert result.value == 1

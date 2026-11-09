@@ -14,10 +14,12 @@ class CheckConfig:
     max_flatline_s: float = 2.0
     clipping_fraction: float = 0.01
     clipping_min_run: int = 3
-    spike_window: int = 11
+    spike_window: int = 101
     spike_z: float = 8.0
     derivative_pair_rel_tol: float = 0.05
     derivative_pairs: tuple[tuple[str, str], ...] = ()
+    resolution_min_fraction: float = 0.05
+    expected_rate_hz: float | None = None
 
 
     def __post_init__(self) -> None:
@@ -73,6 +75,18 @@ def time_monotonic(time: ArrayLike, record_id: str, config: CheckConfig = CheckC
     return _result(record_id, "time_monotonic", None, value, 0.0, error)
 
 
+def _timestamp_resolution(deviation: NDArray[np.float64], roundoff: float,
+                          min_fraction: float) -> float:
+    nonzero = np.sort(deviation[deviation > roundoff])
+    if not len(nonzero):
+        return 0.0
+    # Group equal magnitudes within timestamp subtraction roundoff.
+    starts = np.r_[0, np.flatnonzero(np.diff(nonzero) > roundoff) + 1]
+    counts = np.diff(np.r_[starts, len(nonzero)])
+    repeated = nonzero[starts[counts >= min_fraction * len(deviation)]]
+    return float(repeated[0]) if len(repeated) else 0.0
+
+
 def sample_rate(time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()) -> CheckResult:
     """Check sample spacing and exclude steps counted as gaps."""
     time = np.asarray(time, dtype=float)
@@ -85,10 +99,17 @@ def sample_rate(time: ArrayLike, record_id: str, config: CheckConfig = CheckConf
         deviation = np.abs(regular - median)
         # Exclude floating-point roundoff when inferring timestamp resolution.
         roundoff = 8 * np.finfo(float).eps * max(np.max(np.abs(time)), median)
-        nonzero = deviation[deviation > roundoff]
-        resolution = float(np.min(nonzero)) if len(nonzero) else 0.0
-        threshold = max(config.sample_rate_rel_tol, (resolution + roundoff) / median)
+        resolution = _timestamp_resolution(deviation, roundoff, config.resolution_min_fraction)
+        if resolution:
+            threshold = max(threshold, (resolution + roundoff) / median)
         value = float(np.max(deviation) / median)
+        if config.expected_rate_hz is not None:
+            error = f"expected {config.expected_rate_hz:g} Hz; measured {1 / median:g} Hz"
+            rate_error = float(abs(median * config.expected_rate_hz - 1))
+            if rate_error > config.sample_rate_rel_tol:
+                return _result(record_id, "sample_rate", None, rate_error,
+                               config.sample_rate_rel_tol, f"rate mismatch: {error}")
+            error = f"maximum relative step error {value:g}; {error}"
     return _result(record_id, "sample_rate", None, value, threshold, error)
 
 
@@ -172,8 +193,10 @@ def spikes(values: ArrayLike, record_id: str, channel: str,
         rolling = series.rolling(config.spike_window, center=True, min_periods=1)
         residual = values - rolling.median().to_numpy()
         mad = rolling.apply(lambda x: np.median(np.abs(x - np.median(x))), raw=True).to_numpy()
-        fallback = np.median(np.abs(residual - np.median(residual)))
-        scale = 1.4826 * np.where(mad > 0, mad, fallback)
+        global_mad = np.median(np.abs(residual - np.median(residual)))
+        # 101 samples stabilize local MAD; the global floor prevents small local
+        # scales from turning Gaussian noise into false alarms at the 8-sigma limit.
+        scale = 1.4826 * np.maximum(mad, global_mad)
         steps = np.abs(np.diff(values))
         nonzero = steps[steps > 0]
         quantum = float(np.min(nonzero)) if len(nonzero) else 0.0

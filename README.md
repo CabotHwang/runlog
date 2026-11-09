@@ -102,23 +102,28 @@ The default rules follow.
 | Check | Rule |
 |---|---|
 | `time_monotonic` | Timestamps are finite. Each time step is positive. |
-| `sample_rate` | Step error is at most the larger of 1% of the median step and timestamp resolution. Gaps are excluded. |
+| `sample_rate` | Exclude gaps. Step error is at most the larger of 1% of the median step and repeated timestamp resolution. Check the expected rate if set. |
 | `gaps` | No step exceeds three times the median step. |
 | `duration` | Record duration is at least 10 s. |
 | `non_finite` | Each channel has no NaN or infinite values. |
 | `flatline` | Each run of identical values lasts at most 2 s. |
 | `clipping` | Runs at channel limits contain at most 1% of samples. Each counted run has at least three samples. |
-| `spikes` | No Hampel score exceeds 8. The centered window contains 11 samples. |
+| `spikes` | No spike score exceeds 8. Use a centered 101-sample window and a global scale floor. |
 | `derivative_pair` | Normalized RMS error between position gradient and velocity is at most 0.05. Pairs require configuration. |
 
 The Hampel residual is the value minus its rolling median.
-The scale is 1.4826 times the same-window median absolute deviation (MAD).
-Zero local MAD uses the global MAD of the residual.
+The scale is 1.4826 times the larger of the local median absolute deviation (MAD) and the global residual MAD.
+The local MAD uses the same window.
 The scale is at least 1.4826 times the smallest nonzero absolute channel step.
 This step estimates the channel quantum.
 An entirely zero scale and residual gives `not_testable`.
 Use an odd `spike_window` of at least three samples.
-Timestamp resolution is the smallest nonzero absolute deviation from the median step, after exclusion of gaps and roundoff.
+Timestamp resolution is the smallest nonzero absolute deviation from the median step that occurs in at least 5% of regular steps.
+Exclude gaps and roundoff.
+Set `resolution_min_fraction` to change this fraction.
+Set `expected_rate_hz` to require `abs(median_step * expected_rate_hz - 1) <= sample_rate_rel_tol`.
+This rate limit does not increase with timestamp resolution.
+The result message gives the expected and measured rates.
 
 Checks return `not_testable` when required data are insufficient or invalid.
 Examples include fewer than 10 samples, constant channels for clipping, and invalid time for checks that require increasing time.
@@ -268,7 +273,6 @@ Check the time results before you use segment tags.
 A passed check does not establish physical validity.
 Rounded or simulated data with repeated extrema can fail the clipping check.
 A slow ramp between plateaus can extend a steady interval and bias its RMS.
-An isolated timing deviation can set the inferred timestamp resolution.
 An isolated channel jump can set the inferred quantum and pass the spike check.
 The demo uses synthetic data.
 
