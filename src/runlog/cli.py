@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 from pyarrow import ArrowException
 
+from . import __version__
 from .catalog import build_catalog, named_queries, query
 from .checks import CheckConfig, run_checks
 from .ingest import load_record, read_csv, read_openfast_out, write_record
@@ -103,6 +104,7 @@ def _tag_record(args: argparse.Namespace, frame: pd.DataFrame, meta: RecordMeta,
     report = {"status": "not_testable", "segments": []}
     if args.channel in frame and args.channel != "time":
         report = asdict(tag_segments(frame["time"], frame[args.channel], meta.record_id, args.channel, config))
+    report.update(runlog_version=__version__, config=asdict(config))
     data["channels"][args.channel] = report
     return data
 
@@ -123,7 +125,8 @@ def _analyze(args: argparse.Namespace) -> int:
         if args.command == "check":
             results = run_checks(frame, meta.record_id, config)
             failures += sum(result.status == "fail" for result in results)
-            data = {"record_sha256": meta.sha256, "checks": [asdict(result) for result in results]}
+            data = {"record_sha256": meta.sha256, "runlog_version": __version__,
+                    "config": asdict(config), "checks": [asdict(result) for result in results]}
         else:
             data = _tag_record(args, frame, meta, config, folder / sidecar.name)
         (folder / sidecar.name).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

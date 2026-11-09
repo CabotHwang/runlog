@@ -68,12 +68,13 @@ dataset/
 Each Parquet file contains `time` in seconds and numeric channel columns.
 Each record sidecar contains channel units, scalar attributes, sample count, source file name, schema version, and SHA-256 hash.
 The source contains only the file name.
-The check sidecar stores `record_sha256` and a `checks` list.
+The check sidecar stores `record_sha256`, `runlog_version`, `config`, and a `checks` list.
 The segment sidecar stores `record_sha256` and a `channels` object.
-Each channel entry contains `status` and `segments`.
+Each channel entry contains `status`, `segments`, `runlog_version`, and `config`.
+Each `config` object stores all fields of the configuration used for that analysis.
 Tagging updates only the selected channel.
 A missing channel gives `not_testable` and an empty segment list.
-Verification and catalog builds reject analysis sidecars with a different record hash.
+Verification and catalog builds reject analysis sidecars with a different record hash or missing version or configuration fields.
 The catalog is a derived index.
 Rebuild it after changes to records or sidecars.
 
@@ -114,7 +115,7 @@ The default rules follow.
 The Hampel residual is the value minus its rolling median.
 The scale is 1.4826 times the larger of the local median absolute deviation (MAD) and the global residual MAD.
 The local MAD uses the same window.
-The scale is at least 1.4826 times the smallest nonzero absolute channel step.
+The scale is at least 1.4826 times the smallest nonzero absolute channel step that occurs in at least `resolution_min_fraction` of all channel steps (5% by default).
 This step estimates the channel quantum.
 An entirely zero scale and residual gives `not_testable`.
 Use an odd `spike_window` of at least three samples.
@@ -175,7 +176,7 @@ Records shorter than twice that window give `not_testable`.
 The index command rebuilds the SQLite catalog in one transaction.
 An atomic file replacement installs the completed catalog.
 Foreign keys link each child table to `records`.
-Indexes cover `segments(tag)` and `attrs(key, value_num)`.
+Indexes cover `segments(tag)`, `attrs(key, value_num)`, and `checks(record_id, status)`.
 
 | Table | Columns |
 |---|---|
@@ -271,9 +272,11 @@ Ingest preserves time errors for later checks.
 Segment tagging assumes uniform sample spacing and uses the median time step.
 Check the time results before you use segment tags.
 A passed check does not establish physical validity.
+A stopped vehicle or another signal with a constant level can fail the flatline and clipping checks with the default thresholds.
+Set thresholds for each data type with `--config`.
+In a record with mostly strong oscillation, the global spike scale floor makes spike detection less sensitive in quiet parts.
 Rounded or simulated data with repeated extrema can fail the clipping check.
 A slow ramp between plateaus can extend a steady interval and bias its RMS.
-An isolated channel jump can set the inferred quantum and pass the spike check.
 The demo uses synthetic data.
 
 ## License

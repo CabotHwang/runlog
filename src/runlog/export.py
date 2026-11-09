@@ -26,14 +26,15 @@ def _schema() -> MetaData:
     attrs = Table("attrs", metadata, _record_id(True),
                   Column("key", String(128), primary_key=True), Column("value_num", Double),
                   Column("value_text", Text))
-    Table("checks", metadata, Column("check_id", Integer, primary_key=True, autoincrement=True),
-          _record_id(), Column("check_name", String(128)), Column("channel", String(128)),
-          Column("status", String(32)), Column("value", Double), Column("threshold", Double),
-          Column("message", Text))
+    checks = Table("checks", metadata, Column("check_id", Integer, primary_key=True, autoincrement=True),
+                   _record_id(), Column("check_name", String(128)), Column("channel", String(128)),
+                   Column("status", String(32)), Column("value", Double), Column("threshold", Double),
+                   Column("message", Text))
     segments = Table("segments", metadata, Column("segment_id", Integer, primary_key=True),
                      _record_id(), Column("channel", String(128)), Column("start_s", Double),
                      Column("end_s", Double), Column("tag", String(32)), Column("method", String(128)),
                      Column("method_version", Integer), Column("rms", Double), Column("peak_freq_hz", Double))
+    Index("checks_record_status", checks.c.record_id, checks.c.status)
     Index("segments_tag", segments.c.tag)
     Index("attrs_key_num", attrs.c.key, attrs.c.value_num)
     return metadata

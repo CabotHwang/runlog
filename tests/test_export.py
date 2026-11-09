@@ -34,6 +34,9 @@ def test_export_rows_schema_and_source_unchanged(demo_dataset, tmp_path):
         assert inspector.get_pk_constraint("checks")["constrained_columns"] == ["check_id"]
         assert inspector.get_pk_constraint("channels")["constrained_columns"] == ["record_id", "name"]
         assert inspector.get_indexes("segments")[0]["column_names"] == ["tag"]
+        checks_index = inspector.get_indexes("checks")[0]
+        assert checks_index["name"] == "checks_record_status"
+        assert checks_index["column_names"] == ["record_id", "status"]
         assert inspector.get_indexes("attrs")[0]["column_names"] == ["key", "value_num"]
     engine.dispose()
     assert (demo_dataset / "catalog.sqlite").read_bytes() == before

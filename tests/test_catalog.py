@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from runlog import build_catalog, query, run_checks, tag_segments, SegmentConfig, write_record
+from runlog import (CheckConfig, SegmentConfig, __version__, build_catalog, query,
+                    run_checks, tag_segments, write_record)
 
 
 def dataset(path):
@@ -15,11 +16,14 @@ def dataset(path):
     meta = write_record(frame, path, "r", {"sway": "m"}, "r.csv",
                         {"vr": 5, "label": "test", "active": True})
     (path / "checks").mkdir()
-    checks = {"record_sha256": meta.sha256, "checks": [asdict(r) for r in run_checks(frame, "r")]}
+    checks = {"record_sha256": meta.sha256, "runlog_version": __version__,
+              "config": asdict(CheckConfig()), "checks": [asdict(r) for r in run_checks(frame, "r")]}
     (path / "checks/r.json").write_text(json.dumps(checks), encoding="utf-8")
     (path / "segments").mkdir()
-    report = tag_segments(time, frame.sway, "r", "sway", SegmentConfig(0.1, window_s=10, rel_tol=0.2))
-    segments = {"record_sha256": meta.sha256, "channels": {"sway": asdict(report)}}
+    config = SegmentConfig(0.1, window_s=10, rel_tol=0.2)
+    report = tag_segments(time, frame.sway, "r", "sway", config)
+    segments = {"record_sha256": meta.sha256, "channels": {"sway": {
+        **asdict(report), "runlog_version": __version__, "config": asdict(config)}}}
     (path / "segments/r.json").write_text(json.dumps(segments), encoding="utf-8")
 
 
@@ -40,6 +44,9 @@ def test_catalog_rebuild_and_rows(tmp_path):
     with sqlite3.connect(tmp_path / "catalog.sqlite") as connection:
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert len(connection.execute("PRAGMA index_list(segments)").fetchall()) == 1
+        assert connection.execute("PRAGMA index_list(checks)").fetchone()[1] == "checks_record_status"
+        columns = connection.execute("PRAGMA index_info(checks_record_status)").fetchall()
+        assert [column[2] for column in columns] == ["record_id", "status"]
 
 
 @pytest.mark.parametrize("sql", ["DELETE FROM records", "CREATE TABLE bad(x)", "UPDATE attrs SET value_num=0"])

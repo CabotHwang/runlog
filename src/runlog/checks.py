@@ -75,12 +75,12 @@ def time_monotonic(time: ArrayLike, record_id: str, config: CheckConfig = CheckC
     return _result(record_id, "time_monotonic", None, value, 0.0, error)
 
 
-def _timestamp_resolution(deviation: NDArray[np.float64], roundoff: float,
-                          min_fraction: float) -> float:
+def _step_resolution(deviation: NDArray[np.float64], roundoff: float,
+                     min_fraction: float) -> float:
     nonzero = np.sort(deviation[deviation > roundoff])
     if not len(nonzero):
         return 0.0
-    # Group equal magnitudes within timestamp subtraction roundoff.
+    # Group equal magnitudes within the supplied subtraction roundoff.
     starts = np.r_[0, np.flatnonzero(np.diff(nonzero) > roundoff) + 1]
     counts = np.diff(np.r_[starts, len(nonzero)])
     repeated = nonzero[starts[counts >= min_fraction * len(deviation)]]
@@ -99,7 +99,7 @@ def sample_rate(time: ArrayLike, record_id: str, config: CheckConfig = CheckConf
         deviation = np.abs(regular - median)
         # Exclude floating-point roundoff when inferring timestamp resolution.
         roundoff = 8 * np.finfo(float).eps * max(np.max(np.abs(time)), median)
-        resolution = _timestamp_resolution(deviation, roundoff, config.resolution_min_fraction)
+        resolution = _step_resolution(deviation, roundoff, config.resolution_min_fraction)
         if resolution:
             threshold = max(threshold, (resolution + roundoff) / median)
         value = float(np.max(deviation) / median)
@@ -198,13 +198,13 @@ def spikes(values: ArrayLike, record_id: str, channel: str,
         # scales from turning Gaussian noise into false alarms at the 8-sigma limit.
         scale = 1.4826 * np.maximum(mad, global_mad)
         steps = np.abs(np.diff(values))
-        nonzero = steps[steps > 0]
-        quantum = float(np.min(nonzero)) if len(nonzero) else 0.0
+        quantum = _step_resolution(steps, 0.0, config.resolution_min_fraction)
         scale = np.maximum(scale, 1.4826 * quantum)
-        if not np.any(scale):
+        if not np.any(scale) and not np.any(residual):
             error = "median absolute deviation is zero"
         else:
-            score = np.abs(residual) / scale
+            score = np.divide(np.abs(residual), scale,
+                              out=np.where(residual == 0, 0.0, np.inf), where=scale > 0)
             value = float(np.count_nonzero(score > config.spike_z))
     return _result(record_id, "spikes", channel, value, 0.0, error)
 

@@ -20,6 +20,7 @@ CREATE TABLE checks(record_id TEXT REFERENCES records, check_name TEXT, channel 
 CREATE TABLE segments(segment_id INTEGER PRIMARY KEY, record_id TEXT REFERENCES records,
  channel TEXT, start_s REAL, end_s REAL, tag TEXT, method TEXT, method_version INTEGER,
  rms REAL, peak_freq_hz REAL);
+CREATE INDEX checks_record_status ON checks(record_id, status);
 CREATE INDEX segments_tag ON segments(tag);
 CREATE INDEX attrs_key_num ON attrs(key, value_num);
 '''

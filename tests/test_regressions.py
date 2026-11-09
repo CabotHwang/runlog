@@ -1,13 +1,14 @@
 import json
 import sqlite3
 from pathlib import Path
+from dataclasses import asdict
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from runlog import (
-    build_catalog, duration, load_record, query, sample_rate, spikes,
+    CheckConfig, __version__, build_catalog, duration, load_record, query, sample_rate, spikes,
     tag_segments, SegmentConfig, time_monotonic, verify_dataset, write_record,
 )
 from runlog.cli import main
@@ -52,6 +53,7 @@ def test_rounded_timestamps(hz):
 
 def test_quantized_spikes():
     values = np.zeros(200)
+    values[10:120:20] = 1
     values[[20, 50, 80]] = [1, 2, 3]
     assert spikes(values, "r", "x").value == 0
     values[120] = 30
@@ -111,7 +113,8 @@ def test_tag_keeps_other_channels_and_skips_missing(tmp_path):
     assert data["channels"]["x"] == first
     assert data["channels"]["y"]["status"] == "ok"
     missing = json.loads((tmp_path / "segments/a.json").read_text(encoding="utf-8"))
-    assert missing["channels"]["y"] == {"status": "not_testable", "segments": []}
+    assert missing["channels"]["y"] == {"status": "not_testable", "segments": [],
+        "runlog_version": __version__, "config": asdict(SegmentConfig(0.1))}
     assert main([*base, "x"]) == 0
     build_catalog(tmp_path)
     assert {row["channel"] for row in query(tmp_path, "SELECT DISTINCT channel FROM segments")} == {"x", "y"}
@@ -249,6 +252,11 @@ def test_invalid_analysis_is_reported(tmp_path, folder, payload):
     meta = record(tmp_path)
     if isinstance(payload, dict):
         payload = {"record_sha256": meta.sha256, **payload}
+        if folder == "checks":
+            payload.update(runlog_version=__version__, config=asdict(CheckConfig()))
+        elif isinstance(payload["channels"], dict):
+            for report in payload["channels"].values():
+                report.update(runlog_version=__version__, config=asdict(SegmentConfig(0.1)))
     (tmp_path / folder).mkdir()
     (tmp_path / folder / "r.json").write_text(json.dumps(payload), encoding="utf-8")
     assert any("invalid analysis sidecar" in error for error in verify_dataset(tmp_path))

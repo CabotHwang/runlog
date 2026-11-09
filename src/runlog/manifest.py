@@ -1,10 +1,11 @@
 import hashlib
 import json
+from dataclasses import fields
 from pathlib import Path
 
-from .checks import CheckResult
+from .checks import CheckConfig, CheckResult
 from .schema import RecordMeta
-from .segments import Segment
+from .segments import Segment, SegmentConfig
 
 
 def sha256_file(path: str | Path) -> str:
@@ -14,6 +15,16 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _validate_provenance(report: dict, config_type: type[CheckConfig] | type[SegmentConfig]) -> None:
+    version = report["runlog_version"]
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError("runlog_version must be a non-empty string")
+    config = report["config"]
+    if not isinstance(config, dict) or set(config) != {field.name for field in fields(config_type)}:
+        raise ValueError("config must contain all configuration fields")
+    config_type(**config)
 
 
 def read_analysis(path: Path, record_sha256: str) -> dict:
@@ -26,6 +37,7 @@ def read_analysis(path: Path, record_sha256: str) -> dict:
         if data.get("record_sha256") != record_sha256:
             raise ValueError("record hash mismatch")
         if path.parent.name == "checks":
+            _validate_provenance(data, CheckConfig)
             if not isinstance(data["checks"], list):
                 raise ValueError("checks must be a list")
             for row in data["checks"]:
@@ -34,6 +46,7 @@ def read_analysis(path: Path, record_sha256: str) -> dict:
                     raise ValueError("invalid check result")
         else:
             for channel, report in data["channels"].items():
+                _validate_provenance(report, SegmentConfig)
                 if report["status"] not in ("ok", "not_testable") or not isinstance(report["segments"], list):
                     raise ValueError("invalid channel report")
                 for row in report["segments"]:
@@ -42,7 +55,7 @@ def read_analysis(path: Path, record_sha256: str) -> dict:
                         raise ValueError("segment identity mismatch")
         return data
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
-        raise ValueError(f"invalid analysis sidecar: {label}: {exc}") from exc
+        raise ValueError(f"invalid analysis sidecar: {label}: schema error: {exc}") from exc
 
 
 def _verify_pair(sidecar: Path, parquet: Path) -> list[str]:

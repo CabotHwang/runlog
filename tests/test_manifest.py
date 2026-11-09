@@ -1,10 +1,11 @@
 import hashlib
 import json
+from dataclasses import asdict
 
 import pandas as pd
 import pytest
 
-from runlog import sha256_file, verify_dataset, write_record
+from runlog import CheckConfig, __version__, sha256_file, verify_dataset, write_record
 
 
 def make_record(dataset):
@@ -23,7 +24,8 @@ def test_valid_and_extra(tmp_path):
     meta = make_record(tmp_path)
     for folder in ("checks", "segments"):
         (tmp_path / folder).mkdir()
-        report = {"checks": []} if folder == "checks" else {"channels": {}}
+        report = ({"checks": [], "runlog_version": __version__, "config": asdict(CheckConfig())}
+                  if folder == "checks" else {"channels": {}})
         (tmp_path / folder / "r.json").write_text(json.dumps({"record_sha256": meta.sha256, **report}))
     (tmp_path / "catalog.sqlite").touch()
     assert verify_dataset(tmp_path) == []

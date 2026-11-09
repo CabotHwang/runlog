@@ -85,7 +85,10 @@ def test_channel_checks_undefined(check, values):
 
 
 def test_zero_mad_with_known_quantum():
-    result = spikes(np.r_[np.zeros(99), 1, np.zeros(99), 100], "r", "x")
+    values = np.zeros(200)
+    values[10:120:20] = 1
+    values[-1] = 100
+    result = spikes(values, "r", "x")
     assert result.status == "fail"
     assert result.value == 1
 
@@ -133,8 +136,31 @@ def test_expected_rate_uses_relative_tolerance_despite_rounding():
     assert "measured 125 Hz" in result.message
 
 
-def test_quantum_with_no_smaller_reference_step():
-    assert spikes(np.r_[np.zeros(99), 1], "r", "x").status == "pass"
+@pytest.mark.parametrize("index", [0, 500, 999])
+def test_isolated_channel_spike_does_not_set_quantum(index):
+    values = np.zeros(1000)
+    values[index] = 1
+    result = spikes(values, "r", "x")
+    assert result.status == "fail"
+    assert result.value == 1
+
+
+@pytest.mark.parametrize("count,expected", [(24, 24), (25, 0)])
+def test_channel_quantum_requires_fraction_of_all_steps(count, expected):
+    values = np.zeros(1001)
+    values[10:10 + 20 * count:20] = 1
+    assert spikes(values, "r", "x").value == expected
+    config = CheckConfig(resolution_min_fraction=0.06)
+    assert spikes(values, "r", "x", config).value == count
+
+
+@pytest.mark.parametrize("noise_lsb", [0.3, 0.5, 1.0])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_quantized_integer_noise_has_no_spikes(noise_lsb, seed):
+    values = np.rint(np.random.default_rng(seed).normal(0, noise_lsb, 10_000))
+    result = spikes(values, "r", "x")
+    assert result.status == "pass"
+    assert result.value == 0
 
 
 def test_clipping_counts_runs_separately():
