@@ -4,7 +4,8 @@ Convert time-series test logs into a checked, tagged, and searchable dataset.
 
 [![CI](https://github.com/CabotHwang/runlog/actions/workflows/ci.yml/badge.svg)](https://github.com/CabotHwang/runlog/actions/workflows/ci.yml)
 
-This library is part of my master's research on vortex-induced motion (VIM) of floating offshore wind turbines.
+The design comes from the test-log work in my master's research on vortex-induced motion (VIM) of floating offshore wind turbines.
+The examples use synthetic data.
 
 ![Synthetic sway response with quality check results and segment tags](docs/figures/record_timeline.png)
 
