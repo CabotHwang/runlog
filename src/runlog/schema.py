@@ -4,13 +4,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 SCHEMA_VERSION = 1
-_RECORD_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+_RECORD_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 
 
 def validate_record_id(record_id: str) -> None:
     """Validate the record identifier."""
     if not isinstance(record_id, str) or not _RECORD_ID.fullmatch(record_id):
-        raise ValueError("record_id must contain 1–64 letters, digits, underscores, dots or hyphens")
+        raise ValueError("record_id must start with a letter or digit and contain "
+                         "1–64 letters, digits, underscores, dots or hyphens")
 
 
 @dataclass(frozen=True)

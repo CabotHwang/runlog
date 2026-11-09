@@ -8,8 +8,8 @@ from runlog import sha256_file, verify_dataset, write_record
 
 
 def make_record(dataset):
-    write_record(pd.DataFrame({"time": [0, 1], "x": [1, 2]}), dataset,
-                 "r", {"x": "m"}, "r.csv")
+    return write_record(pd.DataFrame({"time": [0, 1], "x": [1, 2]}), dataset,
+                        "r", {"x": "m"}, "r.csv")
 
 
 def test_hash_chunks(tmp_path):
@@ -20,10 +20,11 @@ def test_hash_chunks(tmp_path):
 
 
 def test_valid_and_extra(tmp_path):
-    make_record(tmp_path)
+    meta = make_record(tmp_path)
     for folder in ("checks", "segments"):
         (tmp_path / folder).mkdir()
-        (tmp_path / folder / "r.json").write_text("{}")
+        report = {"checks": []} if folder == "checks" else {"channels": {}}
+        (tmp_path / folder / "r.json").write_text(json.dumps({"record_sha256": meta.sha256, **report}))
     (tmp_path / "catalog.sqlite").touch()
     assert verify_dataset(tmp_path) == []
     (tmp_path / "records/extra.txt").touch()
@@ -52,7 +53,7 @@ def test_hash_mismatch(tmp_path):
 def test_bad_sidecar(tmp_path, change):
     make_record(tmp_path)
     path = tmp_path / "records/r.json"
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data.update(change)
     path.write_text(json.dumps(data))
     assert "sidecar schema error" in verify_dataset(tmp_path)[0]

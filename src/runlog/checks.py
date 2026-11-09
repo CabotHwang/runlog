@@ -43,12 +43,12 @@ def _result(record_id: str, check: str, channel: str | None, value: float | None
                        message or ("rule satisfied" if status == "pass" else "threshold exceeded"))
 
 
-def _time_error(time: NDArray[np.float64], monotonic: bool = True) -> str:
+def _time_error(time: NDArray[np.float64]) -> str:
     if len(time) < 10:
         return "fewer than 10 samples"
     if not np.isfinite(time).all():
         return "time contains non-finite values"
-    if monotonic and not np.all(np.diff(time) > 0):
+    if not np.all(np.diff(time) > 0):
         return "time is not strictly increasing"
     return ""
 
@@ -66,8 +66,10 @@ def _values_error(values: NDArray[np.float64], constant: bool = False) -> str:
 def time_monotonic(time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()) -> CheckResult:
     """Check that time strictly increases."""
     time = np.asarray(time, dtype=float)
-    error = _time_error(time, monotonic=False)
-    value = None if error else float(np.count_nonzero(np.diff(time) <= 0))
+    error = "fewer than 2 samples" if len(time) < 2 else ""
+    with np.errstate(invalid="ignore"):
+        violations = np.count_nonzero(~np.isfinite(time)) + np.count_nonzero(np.diff(time) <= 0)
+    value = None if error else float(violations)
     return _result(record_id, "time_monotonic", None, value, 0.0, error)
 
 
@@ -75,13 +77,19 @@ def sample_rate(time: ArrayLike, record_id: str, config: CheckConfig = CheckConf
     """Check sample spacing and exclude steps counted as gaps."""
     time = np.asarray(time, dtype=float)
     error = _time_error(time)
-    value = None
+    value, threshold = None, config.sample_rate_rel_tol
     if not error:
         dt = np.diff(time)
         median = np.median(dt)
         regular = dt[dt <= config.gap_factor * median]
-        value = float(np.max(np.abs(regular - median)) / median)
-    return _result(record_id, "sample_rate", None, value, config.sample_rate_rel_tol, error)
+        deviation = np.abs(regular - median)
+        # Exclude floating-point roundoff when inferring timestamp resolution.
+        roundoff = 8 * np.finfo(float).eps * max(np.max(np.abs(time)), median)
+        nonzero = deviation[deviation > roundoff]
+        resolution = float(np.min(nonzero)) if len(nonzero) else 0.0
+        threshold = max(config.sample_rate_rel_tol, (resolution + roundoff) / median)
+        value = float(np.max(deviation) / median)
+    return _result(record_id, "sample_rate", None, value, threshold, error)
 
 
 def gaps(time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()) -> CheckResult:
@@ -96,12 +104,17 @@ def gaps(time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()) -
 def duration(time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()) -> CheckResult:
     """Check the minimum record duration."""
     time = np.asarray(time, dtype=float)
-    error = _time_error(time)
-    value = None if error else float(time[-1] - time[0])
+    error = ""
+    if len(time) >= 2:
+        if not np.isfinite(time).all():
+            error = "time contains non-finite values"
+        elif not np.all(np.diff(time) > 0):
+            error = "time is not strictly increasing"
+    value = None if error else (float(time[-1] - time[0]) if len(time) >= 2 else 0.0)
     result = _result(record_id, "duration", None, value, config.min_duration_s, error)
     if value is None:
         return result
-    status = "pass" if value >= config.min_duration_s else "fail"
+    status = "pass" if len(time) >= 2 and value >= config.min_duration_s else "fail"
     return CheckResult(record_id, "duration", None, status, value, config.min_duration_s,
                        "minimum duration satisfied" if status == "pass" else "record is too short")
 
@@ -161,12 +174,14 @@ def spikes(values: ArrayLike, record_id: str, channel: str,
         mad = rolling.apply(lambda x: np.median(np.abs(x - np.median(x))), raw=True).to_numpy()
         fallback = np.median(np.abs(residual - np.median(residual)))
         scale = 1.4826 * np.where(mad > 0, mad, fallback)
-        # A nonzero residual at zero scale is an isolated departure from a flat window.
-        if not np.any(scale) and not np.any(residual):
+        steps = np.abs(np.diff(values))
+        nonzero = steps[steps > 0]
+        quantum = float(np.min(nonzero)) if len(nonzero) else 0.0
+        scale = np.maximum(scale, 1.4826 * quantum)
+        if not np.any(scale):
             error = "median absolute deviation is zero"
         else:
-            score = np.divide(np.abs(residual), scale, out=np.full(len(values), np.inf), where=scale > 0)
-            score[(scale == 0) & (residual == 0)] = 0
+            score = np.abs(residual) / scale
             value = float(np.count_nonzero(score > config.spike_z))
     return _result(record_id, "spikes", channel, value, 0.0, error)
 

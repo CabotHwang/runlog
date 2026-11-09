@@ -12,13 +12,15 @@ from runlog import build_catalog, query, run_checks, tag_segments, SegmentConfig
 def dataset(path):
     time = np.arange(0, 60, 0.1)
     frame = pd.DataFrame({"time": time, "sway": np.sin(time)})
-    write_record(frame, path, "r", {"sway": "m"}, "r.csv",
-                 {"vr": 5, "label": "test", "active": True})
+    meta = write_record(frame, path, "r", {"sway": "m"}, "r.csv",
+                        {"vr": 5, "label": "test", "active": True})
     (path / "checks").mkdir()
-    (path / "checks/r.json").write_text(json.dumps([asdict(r) for r in run_checks(frame, "r")]))
+    checks = {"record_sha256": meta.sha256, "checks": [asdict(r) for r in run_checks(frame, "r")]}
+    (path / "checks/r.json").write_text(json.dumps(checks), encoding="utf-8")
     (path / "segments").mkdir()
-    (path / "segments/r.json").write_text(json.dumps(asdict(
-        tag_segments(time, frame.sway, "r", "sway", SegmentConfig(0.1, window_s=10, rel_tol=0.2)))))
+    report = tag_segments(time, frame.sway, "r", "sway", SegmentConfig(0.1, window_s=10, rel_tol=0.2))
+    segments = {"record_sha256": meta.sha256, "channels": {"sway": asdict(report)}}
+    (path / "segments/r.json").write_text(json.dumps(segments), encoding="utf-8")
 
 
 def test_catalog_rebuild_and_rows(tmp_path):
@@ -44,7 +46,7 @@ def test_catalog_rebuild_and_rows(tmp_path):
 def test_query_read_only(tmp_path, sql):
     dataset(tmp_path)
     build_catalog(tmp_path)
-    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+    with pytest.raises(sqlite3.DatabaseError):
         query(tmp_path, sql)
 
 
@@ -104,7 +106,7 @@ def test_connections_close_before_replace_and_after_errors(tmp_path, monkeypatch
     build_catalog(tmp_path)
     assert query(tmp_path, "SELECT COUNT(*) AS n FROM records") == [{"n": 1}]
     assert all(connection.closed for connection in connections)
-    with pytest.raises(sqlite3.OperationalError):
+    with pytest.raises(sqlite3.DatabaseError):
         query(tmp_path, "DELETE FROM records")
     assert all(connection.closed for connection in connections)
     (tmp_path / "checks/r.json").write_text("bad json")

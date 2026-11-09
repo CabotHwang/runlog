@@ -6,10 +6,14 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+import pandas as pd
+from pyarrow import ArrowException
+
 from .catalog import build_catalog, query
 from .checks import CheckConfig, run_checks
 from .ingest import load_record, read_csv, read_openfast_out, write_record
-from .manifest import verify_dataset
+from .manifest import read_analysis, verify_dataset
+from .schema import RecordMeta
 from .segments import SegmentConfig, tag_segments
 
 
@@ -19,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     ingest = commands.add_parser("ingest")
     ingest.add_argument("files", nargs="+")
     ingest.add_argument("--time-column", default="time")
-    ingest.add_argument("--units", required=True, type=Path)
+    ingest.add_argument("--units", type=Path)
     ingest.add_argument("--attrs", type=Path)
     ingest.add_argument("--overwrite", action="store_true")
     check = commands.add_parser("check")
@@ -39,10 +43,18 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _json(path: Path | None) -> dict:
-    return json.loads(path.read_text()) if path else {}
+    data = json.loads(path.read_text(encoding="utf-8")) if path else {}
+    if not isinstance(data, dict):
+        raise ValueError("JSON input must contain an object")
+    return data
 
 
 def _ingest(args: argparse.Namespace) -> int:
+    ids = [Path(name).stem for name in args.files]
+    if len(ids) != len(set(ids)):
+        raise ValueError("duplicate record ids in input files")
+    if args.units is None and any(Path(name).suffix.lower() != ".out" for name in args.files):
+        raise ValueError("--units is required for CSV inputs")
     units, attrs = _json(args.units), _json(args.attrs)
     for name in args.files:
         path = Path(name)
@@ -54,6 +66,17 @@ def _ingest(args: argparse.Namespace) -> int:
                      attrs.get(path.name, {}), args.overwrite)
     print(f"Ingested {len(args.files)} records.")
     return 0
+
+
+def _tag_record(args: argparse.Namespace, frame: pd.DataFrame, meta: RecordMeta,
+                config: SegmentConfig, path: Path) -> dict:
+    data = (read_analysis(path, meta.sha256) if path.exists() else
+            {"record_sha256": meta.sha256, "channels": {}})
+    report = {"status": "not_testable", "segments": []}
+    if args.channel in frame and args.channel != "time":
+        report = asdict(tag_segments(frame["time"], frame[args.channel], meta.record_id, args.channel, config))
+    data["channels"][args.channel] = report
+    return data
 
 
 def _analyze(args: argparse.Namespace) -> int:
@@ -72,12 +95,10 @@ def _analyze(args: argparse.Namespace) -> int:
         if args.command == "check":
             results = run_checks(frame, meta.record_id, config)
             failures += sum(result.status == "fail" for result in results)
-            data = [asdict(result) for result in results]
+            data = {"record_sha256": meta.sha256, "checks": [asdict(result) for result in results]}
         else:
-            if args.channel not in frame or args.channel == "time":
-                raise ValueError(f"missing channel: {args.channel}")
-            data = asdict(tag_segments(frame.time, frame[args.channel], meta.record_id, args.channel, config))
-        (folder / sidecar.name).write_text(json.dumps(data, indent=2) + "\n")
+            data = _tag_record(args, frame, meta, config, folder / sidecar.name)
+        (folder / sidecar.name).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         count += 1
     if args.command == "check":
         print(f"Checked {count} records: {failures} failed checks.")
@@ -127,6 +148,6 @@ def main(argv: list[str] | None = None) -> int:
         else:
             _print_rows(query(args.dataset, args.sql), args.format)
         return 0
-    except (ValueError, TypeError, KeyError, OSError, sqlite3.Error) as exc:
+    except (ValueError, TypeError, KeyError, OSError, OverflowError, ArrowException, sqlite3.Error) as exc:
         print(f"runlog: {exc}", file=sys.stderr)
         return 2

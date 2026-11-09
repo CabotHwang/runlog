@@ -1,7 +1,10 @@
 import hashlib
+import json
 from pathlib import Path
 
+from .checks import CheckResult
 from .schema import RecordMeta
+from .segments import Segment
 
 
 def sha256_file(path: str | Path) -> str:
@@ -11,6 +14,35 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def read_analysis(path: Path, record_sha256: str) -> dict:
+    """Read an analysis sidecar and check its record hash and structure."""
+    label = f"{path.parent.name}/{path.name}"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object")
+        if data.get("record_sha256") != record_sha256:
+            raise ValueError("record hash mismatch")
+        if path.parent.name == "checks":
+            if not isinstance(data["checks"], list):
+                raise ValueError("checks must be a list")
+            for row in data["checks"]:
+                result = CheckResult(**row)
+                if result.record_id != path.stem or result.status not in ("pass", "fail", "not_testable"):
+                    raise ValueError("invalid check result")
+        else:
+            for channel, report in data["channels"].items():
+                if report["status"] not in ("ok", "not_testable") or not isinstance(report["segments"], list):
+                    raise ValueError("invalid channel report")
+                for row in report["segments"]:
+                    segment = Segment(**row)
+                    if segment.record_id != path.stem or segment.channel != channel:
+                        raise ValueError("segment identity mismatch")
+        return data
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise ValueError(f"invalid analysis sidecar: {label}: {exc}") from exc
 
 
 def _verify_pair(sidecar: Path, parquet: Path) -> list[str]:
@@ -24,6 +56,13 @@ def _verify_pair(sidecar: Path, parquet: Path) -> list[str]:
                 errors.append(f"sidecar schema error: records/{sidecar.name}: record_id mismatch")
             if parquet.is_file() and sha256_file(parquet) != meta.sha256:
                 errors.append(f"hash mismatch: records/{parquet.name}")
+            for folder in ("checks", "segments"):
+                report = sidecar.parent.parent / folder / sidecar.name
+                if report.is_file():
+                    try:
+                        read_analysis(report, meta.sha256)
+                    except ValueError as exc:
+                        errors.append(str(exc))
         except ValueError as exc:
             errors.append(f"sidecar schema error: records/{sidecar.name}: {exc}")
     if not parquet.is_file():

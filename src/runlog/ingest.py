@@ -80,9 +80,8 @@ def write_record(
     frame.to_parquet(parquet, index=False)
     meta = RecordMeta(record_id, channels, meta.attrs, source_name, len(frame), sha256_file(parquet))
     meta.to_json(sidecar)
-    if overwrite:
-        for folder in ("checks", "segments"):
-            (Path(dataset) / folder / f"{record_id}.json").unlink(missing_ok=True)
+    for folder in ("checks", "segments"):
+        (Path(dataset) / folder / f"{record_id}.json").unlink(missing_ok=True)
     return meta
 
 

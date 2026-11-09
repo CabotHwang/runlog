@@ -17,7 +17,7 @@ def test_roundtrip(tmp_path):
     path = tmp_path / "record.json"
     meta.to_json(path)
     assert RecordMeta.from_json(path) == meta
-    assert json.loads(path.read_text())["schema_version"] == SCHEMA_VERSION == 1
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == SCHEMA_VERSION == 1
     assert __version__ == "0.1.0"
     with pytest.raises(FrozenInstanceError):
         meta.source = "other.csv"
@@ -59,7 +59,7 @@ def test_invalid_json(tmp_path, content):
 def test_json_requires_schema_version(tmp_path):
     path = tmp_path / "record.json"
     metadata().to_json(path)
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     del data["schema_version"]
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="schema_version"):

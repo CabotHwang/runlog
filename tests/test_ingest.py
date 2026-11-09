@@ -16,7 +16,7 @@ def test_csv_roundtrip(tmp_path):
     pd.testing.assert_frame_equal(restored, frame)
     assert meta == restored_meta
     assert meta.source == "input.csv"
-    sidecar = (tmp_path / "dataset/records/run.json").read_text()
+    sidecar = (tmp_path / "dataset/records/run.json").read_text(encoding="utf-8")
     assert str(tmp_path) not in sidecar
 
 

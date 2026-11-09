@@ -36,7 +36,7 @@ def test_full_cli(tmp_path, capsys):
             assert json.loads(text) == [{"record_id": "r"}]
     assert main(["query", *base, "SELECT * FROM records WHERE 0"]) == 0
     assert main(["query", *base, "DELETE FROM records"]) == 2
-    assert main(["tag", *base, "--channel", "missing", "--noise-floor", "0.1"]) == 2
+    assert main(["tag", *base, "--channel", "missing", "--noise-floor", "0.1"]) == 0
     assert main(["tag", *base, "--channel", "x", "--noise-floor", "0"]) == 2
     (dataset / "records/r.parquet").write_bytes(b"corrupt")
     assert main(["verify", *base]) == 1

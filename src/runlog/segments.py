@@ -110,7 +110,7 @@ def _make_segment(time: NDArray[np.float64], values: NDArray[np.float64],
     span = values[start:stop] - np.median(values)
     rms = float(np.sqrt(np.mean(span ** 2)))
     frequency = None
-    if edges[stop] - edges[start] >= config.window_s and len(span) >= 2:
+    if edges[stop] - edges[start] >= config.window_s and len(span) >= 2 and np.ptp(span) > 0:
         spectrum = np.abs(np.fft.rfft((span - np.mean(span)) * np.hanning(len(span))))
         frequencies = np.fft.rfftfreq(len(span), d=float(np.median(np.diff(time))))
         frequency = float(frequencies[1 + np.argmax(spectrum[1:])])

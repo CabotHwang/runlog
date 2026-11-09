@@ -22,7 +22,7 @@ def test_time_checks_pass(check):
 @pytest.mark.parametrize("check,time", [
     (time_monotonic, np.r_[np.arange(100), 99]),
     (time_monotonic, np.arange(100)[::-1]),
-    (sample_rate, np.r_[np.arange(100) * 0.1, 10.05]),
+    (sample_rate, np.r_[np.arange(100) * 0.1, 10.001, 10.15]),
     (gaps, np.r_[np.arange(100) * 0.1, 12.0]),
     (duration, np.arange(20) * 0.1),
 ])
@@ -32,7 +32,7 @@ def test_time_checks_fail(check, time):
     assert result.message
 
 
-@pytest.mark.parametrize("check", [time_monotonic, sample_rate, gaps, duration])
+@pytest.mark.parametrize("check", [sample_rate, gaps])
 @pytest.mark.parametrize("time", [[], np.arange(9), np.r_[np.arange(20), np.nan]])
 def test_time_checks_not_testable(check, time):
     result = check(time, "r")
@@ -84,10 +84,15 @@ def test_channel_checks_undefined(check, values):
     assert check(values, "r", "x").status == "not_testable"
 
 
-def test_zero_mad_nonconstant():
-    result = spikes(np.r_[np.zeros(99), 1], "r", "x")
+def test_zero_mad_with_known_quantum():
+    result = spikes(np.r_[np.zeros(99), 1, np.zeros(99), 100], "r", "x")
     assert result.status == "fail"
     assert result.value == 1
+
+
+def test_inferred_floors_with_no_smaller_reference_step():
+    assert sample_rate(np.r_[np.arange(100) * 0.1, 10.05], "r").status == "pass"
+    assert spikes(np.r_[np.zeros(99), 1], "r", "x").status == "pass"
 
 
 def test_clipping_counts_runs_separately():

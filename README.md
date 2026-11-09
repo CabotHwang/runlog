@@ -15,7 +15,7 @@ Create a virtual environment.
 Install the library with the test and plot dependencies.
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 ```
 
@@ -32,7 +32,7 @@ bash examples/quickstart.sh
 ```
 
 The script ends with the catalog query shown below.
-This output comes from a run of `bash examples/quickstart.sh`:
+This output comes from a run of `bash examples/quickstart.sh` on 2026-11-09:
 
 ```text
 Ingested 16 records.
@@ -68,22 +68,30 @@ dataset/
 Each Parquet file contains `time` in seconds and numeric channel columns.
 Each record sidecar contains channel units, scalar attributes, sample count, source file name, schema version, and SHA-256 hash.
 The source contains only the file name.
-The check sidecar contains check results.
-The segment sidecar contains a status and segment list.
+The check sidecar stores `record_sha256` and a `checks` list.
+The segment sidecar stores `record_sha256` and a `channels` object.
+Each channel entry contains `status` and `segments`.
+Tagging updates only the selected channel.
+A missing channel gives `not_testable` and an empty segment list.
+Verification and catalog builds reject analysis sidecars with a different record hash.
 The catalog is a derived index.
 Rebuild it after changes to records or sidecars.
 
-Record identifiers contain 1–64 letters, digits, underscores, dots, or hyphens.
+Record identifiers start with a letter or digit.
+They contain 1–64 letters, digits, underscores, dots, or hyphens.
 Channel names are unique.
 Each channel has a non-empty unit.
 Attribute values are numbers, strings, or booleans.
 
 Ingest accepts CSV and text OpenFAST `.out` files.
+Use `--units` with a JSON mapping from channel names to units for CSV inputs.
+OpenFAST inputs use units from the file header.
 Use `--time-column` to select the CSV time column.
 Use `--attrs` with a JSON mapping from file names to attribute dictionaries.
-Use `--overwrite` to replace a record and remove its previous check and segment sidecars.
+Use `--overwrite` to replace an existing record.
+Each record write removes its previous check and segment sidecars.
 
-The verify command reports missing files, extra files, hash errors, and invalid record sidecars.
+The verify command reports missing files, extra files, hash errors, and invalid sidecars.
 It ignores hidden files.
 
 ## Checks
@@ -93,8 +101,8 @@ The default rules follow.
 
 | Check | Rule |
 |---|---|
-| `time_monotonic` | Each time step is positive. |
-| `sample_rate` | Relative step error is at most 0.01. Steps counted as gaps are excluded. |
+| `time_monotonic` | Timestamps are finite. Each time step is positive. |
+| `sample_rate` | Step error is at most the larger of 1% of the median step and timestamp resolution. Gaps are excluded. |
 | `gaps` | No step exceeds three times the median step. |
 | `duration` | Record duration is at least 10 s. |
 | `non_finite` | Each channel has no NaN or infinite values. |
@@ -106,12 +114,17 @@ The default rules follow.
 The Hampel residual is the value minus its rolling median.
 The scale is 1.4826 times the same-window median absolute deviation (MAD).
 Zero local MAD uses the global MAD of the residual.
-A nonzero residual with zero scale counts as a spike.
+The scale is at least 1.4826 times the smallest nonzero absolute channel step.
+This step estimates the channel quantum.
 An entirely zero scale and residual gives `not_testable`.
 Use an odd `spike_window` of at least three samples.
+Timestamp resolution is the smallest nonzero absolute deviation from the median step, after exclusion of gaps and roundoff.
 
 Checks return `not_testable` when required data are insufficient or invalid.
 Examples include fewer than 10 samples, constant channels for clipping, and invalid time for checks that require increasing time.
+Time monotonicity requires at least two samples.
+Duration requires at least two finite, increasing timestamps.
+Zero or one sample fails duration.
 Non-finite values prevent other channel checks.
 
 Use `check --config checks.json` to set `CheckConfig` fields.
@@ -149,7 +162,7 @@ Other intervals have no tag.
 Each segment stores its record, channel, boundaries, tag, RMS, peak frequency, method, and method version.
 The method is `rolling_rms`, version 1.
 Peak frequency uses a Hann-window FFT.
-Segments shorter than the RMS window have no peak frequency.
+Constant segments and segments shorter than the RMS window have no peak frequency.
 Records shorter than twice that window give `not_testable`.
 
 ## Catalog
@@ -170,6 +183,7 @@ Indexes cover `segments(tag)` and `attrs(key, value_num)`.
 Numeric attributes use `value_num`.
 String attributes use `value_text`.
 The query command opens the catalog in read-only mode.
+An SQLite authorizer blocks writes and database attachment.
 Select table, CSV, or JSON output with `--format`.
 
 Use this query to list steady RMS against reduced velocity for records with no failed checks:
@@ -199,6 +213,10 @@ Ingest preserves time errors for later checks.
 Segment tagging assumes uniform sample spacing and uses the median time step.
 Check the time results before you use segment tags.
 A passed check does not establish physical validity.
+Rounded or simulated data with repeated extrema can fail the clipping check.
+A slow ramp between plateaus can extend a steady interval and bias its RMS.
+An isolated timing deviation can set the inferred timestamp resolution.
+An isolated channel jump can set the inferred quantum and pass the spike check.
 The demo uses synthetic data.
 
 ## License

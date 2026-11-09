@@ -1,4 +1,3 @@
-import json
 import sqlite3
 import tempfile
 from contextlib import closing
@@ -7,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from .ingest import load_record
-from .manifest import verify_dataset
+from .manifest import read_analysis, verify_dataset
 
 _SCHEMA = '''
 CREATE TABLE records(record_id TEXT PRIMARY KEY, n_samples INTEGER, duration_s REAL,
@@ -28,7 +27,7 @@ CREATE INDEX attrs_key_num ON attrs(key, value_num);
 
 def _insert_record(connection: sqlite3.Connection, dataset: Path, record_id: str) -> None:
     frame, meta = load_record(dataset, record_id)
-    time = frame.time.to_numpy(dtype=float)
+    time = frame["time"].to_numpy(dtype=float)
     valid = len(time) > 1 and np.isfinite(time).all() and np.all(np.diff(time) > 0)
     duration = float(time[-1] - time[0]) if valid else None
     rate = float(1 / np.median(np.diff(time))) if valid else None
@@ -42,16 +41,17 @@ def _insert_record(connection: sqlite3.Connection, dataset: Path, record_id: str
                             for key, value in meta.attrs.items()])
     checks = dataset / "checks" / f"{record_id}.json"
     if checks.exists():
-        for row in json.loads(checks.read_text()):
+        for row in read_analysis(checks, meta.sha256)["checks"]:
             connection.execute("INSERT INTO checks VALUES (?, ?, ?, ?, ?, ?, ?)",
                                (record_id, row["check"], row["channel"], row["status"],
                                 row["value"], row["threshold"], row["message"]))
     segments = dataset / "segments" / f"{record_id}.json"
     if segments.exists():
-        for row in json.loads(segments.read_text())["segments"]:
-            connection.execute("INSERT INTO segments VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                               (record_id, row["channel"], row["start_s"], row["end_s"], row["tag"],
-                                row["method"], row["method_version"], row["rms"], row["peak_freq_hz"]))
+        for report in read_analysis(segments, meta.sha256)["channels"].values():
+            for row in report["segments"]:
+                connection.execute("INSERT INTO segments VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                   (record_id, row["channel"], row["start_s"], row["end_s"], row["tag"],
+                                    row["method"], row["method_version"], row["rms"], row["peak_freq_hz"]))
 
 
 def build_catalog(dataset: str | Path) -> Path:
@@ -82,4 +82,8 @@ def query(dataset: str | Path, sql: str, params: tuple = ()) -> list[dict]:
     uri = (Path(dataset) / "catalog.sqlite").resolve().as_uri() + "?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as connection:
         connection.row_factory = sqlite3.Row
+        allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION,
+                   sqlite3.SQLITE_RECURSIVE}
+        connection.set_authorizer(lambda action, *_: sqlite3.SQLITE_OK if action in allowed
+                                  else sqlite3.SQLITE_DENY)
         return [dict(row) for row in connection.execute(sql, params)]

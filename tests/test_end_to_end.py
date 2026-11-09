@@ -18,12 +18,12 @@ def test_quickstart():
                 "run_15": [("non_finite", "fx")]}
     for index in range(1, 17):
         record_id = f"run_{index:02d}"
-        checks = json.loads((dataset / f"checks/{record_id}.json").read_text())
+        checks = json.loads((dataset / f"checks/{record_id}.json").read_text(encoding="utf-8"))["checks"]
         failed = [(r["check"], r["channel"]) for r in checks if r["status"] == "fail"]
         assert failed == expected.get(record_id, [])
         if record_id not in expected:
             assert all(row["status"] == "pass" for row in checks)
-            report = json.loads((dataset / f"segments/{record_id}.json").read_text())
+            report = json.loads((dataset / f"segments/{record_id}.json").read_text(encoding="utf-8"))["channels"]["sway"]
             assert [s["tag"] for s in report["segments"]] == ["quiet", "buildup", "steady", "decay", "quiet"]
     assert verify_dataset(dataset) == []
     rows = query(dataset, "SELECT DISTINCT record_id FROM segments WHERE tag='steady' AND record_id NOT IN "
@@ -33,4 +33,4 @@ def test_quickstart():
                  "WHERE key='vr' AND record_id NOT IN "
                  "(SELECT record_id FROM checks WHERE status='fail')") == [{"low": 3.0, "high": 10.0}]
     for file in dataset.rglob("*.json"):
-        assert str(root) not in file.read_text()
+        assert str(root) not in file.read_text(encoding="utf-8")
