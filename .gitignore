@@ -7,6 +7,4 @@ coverage.xml
 htmlcov/
 build/
 dist/
-plans/
-reviews/
 examples/output/

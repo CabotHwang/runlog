@@ -2,9 +2,14 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import asdict
 
+import numpy as np
+import pandas as pd
 import pytest
 
+from runlog import (SegmentConfig, __version__, build_catalog, load_record, query,
+                    time_monotonic, verify_dataset, write_record)
 from runlog.cli import main
 
 
@@ -27,7 +32,10 @@ def test_full_cli(tmp_path, capsys):
     assert main(["tag", *base, "--channel", "x", "--noise-floor", "0.1", "--config", str(config)]) == 0
     assert main(["verify", *base]) == 0
     assert main(["index", *base]) == 0
-    capsys.readouterr()
+    output = capsys.readouterr().out
+    assert "Records ingested: 1." in output
+    assert "Records checked: 1. Failed checks: 0." in output
+    assert "Records tagged: 1." in output
     for output in ("json", "csv", "table"):
         assert main(["query", *base, "SELECT record_id FROM records", "--format", output]) == 0
         text = capsys.readouterr().out
@@ -135,3 +143,90 @@ def test_named_query_cli(demo_dataset, capsys):
     ["--file", "examples/queries.sql", "--name", "missing"], ["--file", "absent.sql", "--name", "a"]])
 def test_named_query_cli_errors(demo_dataset, options):
     assert main(["query", "--dataset", str(demo_dataset), *options]) == 2
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_nonfinite_time_fails_check(tmp_path, make_test_record, bad):
+    time = np.arange(20, dtype=float)
+    time[5] = bad
+    result = time_monotonic(time, "r")
+    assert result.status == "fail"
+    assert result.value >= 1
+    make_test_record(tmp_path, time)
+    assert main(["check", "--dataset", str(tmp_path)]) == 1
+
+
+def test_tag_keeps_other_channels_and_skips_missing(tmp_path, make_test_record):
+    meta = make_test_record(tmp_path)
+    frame, _ = load_record(tmp_path, "r")
+    frame["y"] = np.cos(frame.time)
+    meta = write_record(frame, tmp_path, "r", {"x": "m", "y": "m"}, "r.csv", overwrite=True)
+    write_record(frame.drop(columns="y"), tmp_path, "a", {"x": "m"}, "a.csv")
+    base = ["tag", "--dataset", str(tmp_path), "--noise-floor", "0.1", "--channel"]
+    assert main([*base, "x"]) == 0
+    path = tmp_path / "segments/r.json"
+    first = json.loads(path.read_text(encoding="utf-8"))["channels"]["x"]
+    assert main([*base, "y"]) == 0
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["record_sha256"] == meta.sha256
+    assert data["channels"]["x"] == first
+    assert data["channels"]["y"]["status"] == "ok"
+    missing = json.loads((tmp_path / "segments/a.json").read_text(encoding="utf-8"))
+    assert missing["channels"]["y"] == {"status": "not_testable", "segments": [],
+        "runlog_version": __version__, "config": asdict(SegmentConfig(0.1))}
+    assert main([*base, "x"]) == 0
+    build_catalog(tmp_path)
+    assert {row["channel"] for row in query(tmp_path, "SELECT DISTINCT channel FROM segments")} == {"x", "y"}
+    assert verify_dataset(tmp_path) == []
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_ingest_duplicate_stems_before_writes(tmp_path, capsys, overwrite):
+    paths = [tmp_path / "one/r.csv", tmp_path / "two/r.csv"]
+    for path in paths:
+        path.parent.mkdir()
+        path.write_text("time,x\n0,1\n1,2\n", encoding="utf-8")
+    units = tmp_path / "units.json"
+    units.write_text('{"x":"m"}', encoding="utf-8")
+    dataset = tmp_path / "dataset"
+    args = ["ingest", *map(str, paths), "--units", str(units), "--dataset", str(dataset)]
+    assert main(args + (["--overwrite"] if overwrite else [])) == 2
+    assert "duplicate record" in capsys.readouterr().err
+    assert not dataset.exists()
+
+
+@pytest.mark.parametrize("content", ["[]", "null", "1", '"text"'])
+def test_bad_json_object_is_cli_data_error(tmp_path, capsys, content):
+    csv = tmp_path / "r.csv"
+    csv.write_text("time,x\n0,1\n1,2\n", encoding="utf-8")
+    attrs = tmp_path / "attrs.json"
+    attrs.write_text(content, encoding="utf-8")
+    units = tmp_path / "units.json"
+    units.write_text('{"x":"m"}', encoding="utf-8")
+    assert main(["ingest", str(csv), "--dataset", str(tmp_path / "data"),
+                 "--units", str(units), "--attrs", str(attrs)]) == 2
+    assert capsys.readouterr().err.startswith("runlog: ")
+
+
+def test_corrupt_parquet_is_cli_data_error(tmp_path, make_test_record, capsys):
+    make_test_record(tmp_path)
+    (tmp_path / "records/r.parquet").write_bytes(b"bad")
+    assert main(["check", "--dataset", str(tmp_path)]) == 2
+    assert capsys.readouterr().err.startswith("runlog: ")
+
+
+def test_csv_requires_units_openfast_does_not(tmp_path, capsys):
+    path = tmp_path / "r.out"
+    path.write_text("Time X\n(s) (m)\n0 1\n1 2\n", encoding="utf-8")
+    assert main(["ingest", str(path), "--dataset", str(tmp_path / "data")]) == 0
+    assert load_record(tmp_path / "data", "r")[1].channels[0].unit == "m"
+    csv = tmp_path / "s.csv"
+    csv.write_text("time,x\n0,1\n", encoding="utf-8")
+    assert main(["ingest", str(csv), "--dataset", str(tmp_path / "data")]) == 2
+    assert "--units" in capsys.readouterr().err
+
+
+def test_numeric_overflow_is_cli_data_error(tmp_path, capsys):
+    write_record(pd.DataFrame({"time": [0, 1]}), tmp_path, "r", {}, "r.csv", {"big": 10**100})
+    assert main(["index", "--dataset", str(tmp_path)]) == 2
+    assert capsys.readouterr().err.startswith("runlog: ")

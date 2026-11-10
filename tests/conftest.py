@@ -1,7 +1,11 @@
 import runpy
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
+
+from runlog import write_record
 
 from runlog.cli import main
 
@@ -19,3 +23,15 @@ def demo_dataset(tmp_path_factory):
     assert main(["tag", *base, "--channel", "sway", "--noise-floor", "0.005"]) == 0
     assert main(["index", *base]) == 0
     return dataset
+
+
+@pytest.fixture
+def make_test_record():
+    def record(path, time=None, channel="x"):
+        time = np.arange(0, 60, 0.1) if time is None else np.asarray(time)
+        return write_record(
+            pd.DataFrame({"time": time, channel: np.sin(np.arange(len(time)) * 0.1)}),
+            path, "r", {channel: "m"}, "r.csv",
+        )
+
+    return record

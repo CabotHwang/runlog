@@ -47,6 +47,7 @@ WHERE s.tag = 'steady'
 ORDER BY s.channel, rms_rank, s.record_id, s.segment_id;
 
 -- name: steady_coverage
+-- Lists records whose steady time covers at least half of the record duration.
 WITH steady_time AS (
     SELECT record_id, channel, SUM(end_s - start_s) AS steady_s
     FROM segments

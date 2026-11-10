@@ -50,7 +50,7 @@ def _copy(source: sqlite3.Connection, target: Connection, metadata: MetaData) ->
     for table in metadata.sorted_tables:
         actual = target.scalar(select(func.count()).select_from(table))
         if actual != counts[table.name]:
-            raise RuntimeError(f"Row count mismatch for {table.name}")
+            raise RuntimeError(f"row count mismatch for {table.name}")
     return counts
 
 
@@ -58,7 +58,7 @@ def _export(dataset: str | Path, engine: Engine, replace: bool) -> dict[str, int
     source_path = (Path(dataset) / "catalog.sqlite").resolve()
     if engine.dialect.name == "sqlite" and engine.url.database:
         if Path(engine.url.database).resolve() == source_path:
-            raise _TargetError("Target must differ from the source catalog")
+            raise _TargetError("target must differ from the source catalog")
     metadata = _schema()
     with closing(sqlite3.connect(source_path.as_uri() + "?mode=ro", uri=True)) as source:
         source.row_factory = sqlite3.Row
@@ -66,7 +66,7 @@ def _export(dataset: str | Path, engine: Engine, replace: bool) -> dict[str, int
         with engine.begin() as target:
             existing = set(inspect(target).get_table_names()) & set(metadata.tables)
             if existing and not replace:
-                raise _TargetError("Target catalog tables exist; use replace=True or --replace")
+                raise _TargetError("target catalog tables exist; use replace=True or --replace")
             if replace:
                 metadata.drop_all(target)
             metadata.create_all(target)
@@ -79,7 +79,7 @@ def export_catalog(dataset: str | Path, url: str, replace: bool = False) -> dict
         parsed = make_url(url)
         safe_url = parsed.set(query={}).render_as_string(hide_password=True)
     except Exception:
-        raise ValueError("Invalid database URL (password hidden)") from None
+        raise ValueError("invalid database URL (password hidden)") from None
     engine = None
     try:
         engine = create_engine(parsed, hide_parameters=True)
@@ -91,7 +91,7 @@ def export_catalog(dataset: str | Path, url: str, replace: bool = False) -> dict
         if parsed.password:
             message = message.replace(quote(parsed.password, safe=""), "***")
             message = message.replace(parsed.password, "***")
-        raise RuntimeError(f"Catalog export failed for {safe_url}: {type(exc).__name__}: {message}") from None
+        raise RuntimeError(f"catalog export failed for {safe_url}: {type(exc).__name__}: {message}") from None
     finally:
         if engine is not None:
             engine.dispose()

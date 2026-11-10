@@ -21,7 +21,7 @@ class Channel:
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name or self.name == "time":
-            raise ValueError("channel name must be non-empty and must not be time")
+            raise ValueError('channel name must be non-empty and must not be "time"')
         if not isinstance(self.unit, str) or not self.unit.strip():
             raise ValueError("channel unit must be a non-empty string")
 

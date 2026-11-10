@@ -60,7 +60,7 @@ def test_tag_preserves_each_channels_effective_config(tmp_path):
 
 @pytest.mark.parametrize("command", ["check", "tag"])
 @pytest.mark.parametrize("field", ["runlog_version", "config"])
-def test_missing_provenance_is_schema_error(tmp_path, command, field):
+def test_missing_provenance_names_field(tmp_path, command, field):
     dataset = tmp_path / "dataset"
     path, data = make_analysis(dataset, command)
     report = data if command == "check" else data["channels"]["x"]
@@ -69,7 +69,7 @@ def test_missing_provenance_is_schema_error(tmp_path, command, field):
     errors = verify_dataset(dataset)
     assert len(errors) == 1
     assert f"{path.parent.name}/r.json" in errors[0]
-    assert "schema error" in errors[0] and field in errors[0]
+    assert errors == [f"invalid analysis sidecar: {path.parent.name}/r.json: missing field {field}"]
     assert main(["verify", "--dataset", str(dataset)]) == 1
     assert main(["index", "--dataset", str(dataset)]) == 2
 

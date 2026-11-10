@@ -99,11 +99,11 @@ def named_queries(path: str | Path) -> dict[str, str]:
                 queries[name] = "\n".join(lines).strip()
             name, lines = line.removeprefix("-- name:").strip(), []
             if not name or name in queries:
-                raise ValueError("Query names must be non-empty and unique")
+                raise ValueError("query names must be non-empty and unique")
         elif name is not None:
             lines.append(line)
     if name is not None:
         queries[name] = "\n".join(lines).strip()
     if not queries or not all(queries.values()):
-        raise ValueError("SQL file must contain non-empty named queries")
+        raise ValueError("query file must contain non-empty named queries")
     return queries

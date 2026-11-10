@@ -23,7 +23,7 @@ def test_roundtrip(tmp_path):
         meta.source = "other.csv"
 
 
-@pytest.mark.parametrize("record_id", ["", "a" * 65, "../bad", "a b", "a\n", 12])
+@pytest.mark.parametrize("record_id", ["", "a" * 65, "../bad", "a b", "a\n", 12, ".r", "_r", "-r"])
 def test_invalid_id(record_id):
     with pytest.raises(ValueError, match="record_id"):
         replace(metadata(), record_id=record_id)

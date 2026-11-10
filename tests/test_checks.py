@@ -263,3 +263,17 @@ def test_spikes_detects_ten_sigma_impulse(index):
     result = spikes(values, "r", "x")
     assert result.status == "fail"
     assert result.value == 1
+
+
+def test_time_violation_count_and_short_records():
+    assert time_monotonic([0, np.nan, 1, 1, np.inf, -np.inf], "r").value == 5
+    assert time_monotonic([1, 0], "r").value == 1
+    assert time_monotonic([0, 1], "r").status == "pass"
+    assert time_monotonic([np.nan], "r").status == "not_testable"
+
+
+@pytest.mark.parametrize("time,status", [([], "fail"), ([0], "fail"),
+    ([0, 1, 2], "fail"), ([0, 10], "pass"), ([0, 5, 10], "pass"),
+    ([0, np.nan], "not_testable"), ([1, 0], "not_testable")])
+def test_short_duration(time, status):
+    assert duration(time, "r").status == status

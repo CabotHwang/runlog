@@ -120,3 +120,22 @@ def test_connections_close_before_replace_and_after_errors(tmp_path, monkeypatch
     with pytest.raises(ValueError):
         build_catalog(tmp_path)
     assert all(connection.closed for connection in connections)
+
+
+@pytest.mark.parametrize("sql", ["ATTACH DATABASE ? AS other", "VACUUM INTO ?",
+    "PRAGMA user_version=3"])
+def test_query_denies_file_creation_and_writes(tmp_path, make_test_record, sql):
+    make_test_record(tmp_path)
+    build_catalog(tmp_path)
+    destination = tmp_path / "leaked.sqlite"
+    with pytest.raises(sqlite3.DatabaseError):
+        query(tmp_path, sql, (str(destination),) if "?" in sql else ())
+    assert not destination.exists()
+
+
+def test_read_queries_include_functions_and_recursive_ctes(tmp_path, make_test_record):
+    make_test_record(tmp_path)
+    build_catalog(tmp_path)
+    assert query(tmp_path, "SELECT length(record_id) AS n FROM records") == [{"n": 1}]
+    assert query(tmp_path, "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM t WHERE n<3) "
+                 "SELECT sum(n) AS total FROM t") == [{"total": 6}]

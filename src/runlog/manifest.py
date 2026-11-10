@@ -8,6 +8,10 @@ from .schema import RecordMeta
 from .segments import Segment, SegmentConfig
 
 
+class _AnalysisHashMismatch(ValueError):
+    pass
+
+
 def sha256_file(path: str | Path) -> str:
     """Compute the file hash in 1 MiB chunks."""
     digest = hashlib.sha256()
@@ -23,7 +27,7 @@ def _validate_provenance(report: dict, config_type: type[CheckConfig] | type[Seg
         raise ValueError("runlog_version must be a non-empty string")
     config = report["config"]
     if not isinstance(config, dict) or set(config) != {field.name for field in fields(config_type)}:
-        raise ValueError("config must contain all configuration fields")
+        raise ValueError("config must contain exactly the configuration fields")
     config_type(**config)
 
 
@@ -35,7 +39,7 @@ def read_analysis(path: Path, record_sha256: str) -> dict:
         if not isinstance(data, dict):
             raise ValueError("expected a JSON object")
         if data.get("record_sha256") != record_sha256:
-            raise ValueError("record hash mismatch")
+            raise _AnalysisHashMismatch(f"hash mismatch: {label}")
         if path.parent.name == "checks":
             _validate_provenance(data, CheckConfig)
             if not isinstance(data["checks"], list):
@@ -54,7 +58,11 @@ def read_analysis(path: Path, record_sha256: str) -> dict:
                     if segment.record_id != path.stem or segment.channel != channel:
                         raise ValueError("segment identity mismatch")
         return data
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+    except _AnalysisHashMismatch:
+        raise
+    except KeyError as exc:
+        raise ValueError(f"invalid analysis sidecar: {label}: missing field {exc.args[0]}") from exc
+    except (ValueError, TypeError, AttributeError) as exc:
         raise ValueError(f"invalid analysis sidecar: {label}: schema error: {exc}") from exc
 
 

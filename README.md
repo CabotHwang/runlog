@@ -4,16 +4,16 @@ Convert time-series test logs into a checked, tagged, and searchable dataset.
 
 [![CI](https://github.com/CabotHwang/runlog/actions/workflows/ci.yml/badge.svg)](https://github.com/CabotHwang/runlog/actions/workflows/ci.yml)
 
-The design comes from the test-log work in my master's research on vortex-induced motion (VIM) of floating offshore wind turbines.
+I based the design of runlog on the data handling in my master's research on vortex-induced motion (VIM) of floating offshore wind turbines.
 The examples use synthetic data.
 
 ![Synthetic sway response with quality check results and segment tags](docs/figures/record_timeline.png)
 
 ## Install
 
-Use Python 3.10 or later.
+Use Python 3.11 or later.
 Create a virtual environment.
-Install the library with the test and plot dependencies.
+Install the library with the test, plot, and MySQL export dependencies.
 
 ```bash
 python3 -m venv .venv
@@ -22,23 +22,22 @@ python3 -m venv .venv
 
 ## Quickstart
 
-Run the example pipeline from the repository root.
+Run the example pipeline from the repository root. The second command redraws `docs/figures/record_timeline.png`.
 The script creates 16 synthetic records with a fixed random seed.
-Five records each contain one fault: a gap, a flatline, spikes, clipping, or NaNs.
-The script accepts exit code 1 from the check command because these faults are present.
+Five records contain one fault each: a gap, a flatline, spikes, clipping, and NaN values.
+The check command must exit with code 1 because these faults are present. The script stops if it does not.
 
 ```bash
 bash examples/quickstart.sh
 .venv/bin/python examples/plot_record.py
 ```
 
-The script ends with the catalog query shown below.
-This output comes from a run of `bash examples/quickstart.sh` on 2026-11-09:
+The script prints this output. Its last command runs the catalog query from the Catalog section.
 
 ```text
-Ingested 16 records.
-Checked 16 records: 5 failed checks.
-Tagged 16 records.
+Records ingested: 16.
+Records checked: 16. Failed checks: 5.
+Records tagged: 16.
 Dataset verified.
 Catalog rebuilt.
 record_id,vr,steady_rms_m
@@ -68,7 +67,7 @@ dataset/
 
 Each Parquet file contains `time` in seconds and numeric channel columns.
 Each record sidecar contains channel units, scalar attributes, sample count, source file name, schema version, and SHA-256 hash.
-The source contains only the file name.
+The `source` field stores only the file name, not the path.
 The check sidecar stores `record_sha256`, `runlog_version`, `config`, and a `checks` list.
 The segment sidecar stores `record_sha256` and a `channels` object.
 Each channel entry contains `status`, `segments`, `runlog_version`, and `config`.
@@ -93,35 +92,35 @@ Use `--attrs` with a JSON mapping from file names to attribute dictionaries.
 Use `--overwrite` to replace an existing record.
 Each record write removes its previous check and segment sidecars.
 
-The verify command reports missing files, extra files, hash errors, and invalid sidecars.
+The verify command reports missing files, extra files, hash mismatches, and invalid sidecars.
 It ignores hidden files.
 
 ## Checks
 
 Each result has status `pass`, `fail`, or `not_testable`.
-The default rules follow.
+The table gives the default rules.
 
 | Check | Rule |
 |---|---|
 | `time_monotonic` | Timestamps are finite. Each time step is positive. |
-| `sample_rate` | Exclude gaps. Step error is at most the larger of 1% of the median step and repeated timestamp resolution. Check the expected rate if set. |
+| `sample_rate` | Gap steps are excluded. Each step differs from the median step by at most the larger of 1% of the median step and the timestamp resolution. If `expected_rate_hz` is set, the median rate must also match it within 1%. |
 | `gaps` | No step exceeds three times the median step. |
 | `duration` | Record duration is at least 10 s. |
 | `non_finite` | Each channel has no NaN or infinite values. |
 | `flatline` | Each run of identical values lasts at most 2 s. |
 | `clipping` | Runs at channel limits contain at most 1% of samples. Each counted run has at least three samples. |
-| `spikes` | No spike score exceeds 8. Use a centered 101-sample window and a global scale floor. |
+| `spikes` | No spike score exceeds 8. The rolling window is centered and has 101 samples. The scale has a global floor. |
 | `derivative_pair` | Normalized RMS error between position gradient and velocity is at most 0.05. Pairs require configuration. |
 
-The Hampel residual is the value minus its rolling median.
+The `spikes` check uses a Hampel filter. The residual is the value minus its rolling median. The spike score is the absolute residual divided by the scale.
 The scale is 1.4826 times the larger of the local median absolute deviation (MAD) and the global residual MAD.
 The local MAD uses the same window.
 The scale is at least 1.4826 times the smallest nonzero absolute channel step that occurs in at least `resolution_min_fraction` of all channel steps (5% by default).
 This step estimates the channel quantum.
-An entirely zero scale and residual gives `not_testable`.
+If the scale and the residual are both zero for every sample, the result is `not_testable`.
 Use an odd `spike_window` of at least three samples.
-Timestamp resolution is the smallest nonzero absolute deviation from the median step that occurs in at least 5% of regular steps.
-Exclude gaps and roundoff.
+For the `sample_rate` check, timestamp resolution is the smallest nonzero absolute deviation from the median step that occurs in at least 5% of non-gap steps.
+Gap steps and floating-point roundoff do not count.
 Set `resolution_min_fraction` to change this fraction.
 Set `expected_rate_hz` to require `abs(median_step * expected_rate_hz - 1) <= sample_rate_rel_tol`.
 This rate limit does not increase with timestamp resolution.
@@ -130,13 +129,13 @@ The result message gives the expected and measured rates.
 Checks return `not_testable` when required data are insufficient or invalid.
 Examples include fewer than 10 samples, constant channels for clipping, and invalid time for checks that require increasing time.
 Time monotonicity requires at least two samples.
-Duration requires at least two finite, increasing timestamps.
+Duration gives `not_testable` when timestamps are non-finite or not increasing.
 Zero or one sample fails duration.
 Non-finite values prevent other channel checks.
 
 Use `check --config checks.json` to set `CheckConfig` fields.
-Use `tag --config segments.json` to set segment fields.
-The CLI `--noise-floor` value sets the segment noise floor.
+Use `tag --config segments.json` to set `SegmentConfig` fields.
+The required `--noise-floor` value overrides any `noise_floor` in the config file.
 
 | Exit code | Meaning |
 |---|---|
@@ -154,7 +153,7 @@ Intervals include their start and exclude their end.
 | Tag | Rule |
 |---|---|
 | `quiet` | The envelope is below the noise floor. |
-| `steady` | Flat windows form the interval. Each window lasts at least 30 s. |
+| `steady` | The interval is the union of flat windows. Each window lasts at least `min_steady_s` (30 s by default). |
 | `buildup` | Before steady, the envelope rises from below 30% to at least 90% of the steady level. |
 | `decay` | After steady, the envelope follows the reverse buildup rule. |
 
@@ -187,7 +186,7 @@ Indexes cover `segments(tag)`, `attrs(key, value_num)`, and `checks(record_id, s
 | `checks` | `record_id`, `check_name`, `channel`, `status`, `value`, `threshold`, `message` |
 | `segments` | `segment_id`, `record_id`, `channel`, `start_s`, `end_s`, `tag`, `method`, `method_version`, `rms`, `peak_freq_hz` |
 
-Numeric attributes use `value_num`.
+Numeric and boolean attributes use `value_num`. Booleans are stored as 1 or 0.
 String attributes use `value_text`.
 The query command opens the catalog in read-only mode.
 An SQLite authorizer blocks writes and database attachment.
@@ -203,9 +202,9 @@ Use this query to list steady RMS against reduced velocity for records with no f
 
 ## SQL
 
-SQLite is the default catalog. It stores a local file and needs no server.
+The default catalog is a local SQLite file. It needs no server.
 Export the catalog when users need a shared database.
-The export uses SQLAlchemy Core and supports MySQL 8.
+The export uses SQLAlchemy Core and is tested on MySQL 8.4.
 Install the `mysql` extra to use export.
 
 Set the database URL in the environment. Keep credentials outside code and SQL files.
@@ -217,9 +216,9 @@ export RUNLOG_DB_URL='mysql+pymysql://runlog@db.example/runlog'
 
 Export prints the row count for each table.
 Use `--replace` to drop and recreate existing catalog tables.
-MySQL commits table changes before it inserts rows. All inserts use one transaction.
+On MySQL, `DROP TABLE` and `CREATE TABLE` commit immediately, so a failed export can leave empty tables. All row inserts run in one transaction.
 
-The six named queries in `examples/queries.sql` support SQLite 3.35 or later and MySQL 8.
+The six named queries in `examples/queries.sql` run on SQLite 3.35 or later and on MySQL 8.4.
 Run a named query on the local catalog:
 
 ```bash
@@ -273,12 +272,11 @@ Ingest preserves time errors for later checks.
 Segment tagging assumes uniform sample spacing and uses the median time step.
 Check the time results before you use segment tags.
 A passed check does not establish physical validity.
-A stopped vehicle or another signal with a constant level can fail the flatline and clipping checks with the default thresholds.
-Set thresholds for each data type with `--config`.
+A channel that holds a constant value for part of a record, such as the speed of a stopped carriage, can fail the flatline and clipping checks with the default thresholds. A fully constant channel fails flatline and gives `not_testable` for clipping.
+Use `--config` to set thresholds for your data. One configuration applies to all channels in a `check` run.
 In a record with mostly strong oscillation, the global spike scale floor makes spike detection less sensitive in quiet parts.
 Rounded or simulated data with repeated extrema can fail the clipping check.
 A slow ramp between plateaus can extend a steady interval and bias its RMS.
-The demo uses synthetic data.
 
 ## License
 

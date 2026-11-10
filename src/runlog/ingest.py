@@ -32,13 +32,13 @@ def read_openfast_out(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
     header = next((index for index, line in enumerate(lines)
                    if line.split() and line.split()[0] == "Time"), None)
     if header is None or header + 1 >= len(lines):
-        raise ValueError("OpenFAST log must contain a Time header and units")
+        raise ValueError("missing OpenFAST Time header or units")
     names = lines[header].split()
     units = lines[header + 1].split()
     if len(names) != len(set(names)) or len(units) != len(names):
-        raise ValueError("OpenFAST channel names and units must match")
+        raise ValueError("invalid OpenFAST header: channel names must be unique and match the units row")
     if any(not unit.startswith("(") or not unit.endswith(")") for unit in units):
-        raise ValueError("OpenFAST units must be in parentheses")
+        raise ValueError("invalid OpenFAST units: expected parentheses")
     try:
         rows = [[float(value) for value in line.split()]
                 for line in lines[header + 2:] if line.strip()]

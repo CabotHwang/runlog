@@ -22,37 +22,37 @@ from .segments import SegmentConfig, tag_segments
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="runlog", description="Check and tag time-series test logs.")
     commands = parser.add_subparsers(dest="command", required=True)
-    ingest = commands.add_parser("ingest")
-    ingest.add_argument("files", nargs="+")
-    ingest.add_argument("--time-column", default="time")
-    ingest.add_argument("--units", type=Path)
-    ingest.add_argument("--attrs", type=Path)
-    ingest.add_argument("--overwrite", action="store_true")
-    check = commands.add_parser("check")
-    check.add_argument("--config", type=Path)
-    tag = commands.add_parser("tag")
-    tag.add_argument("--channel", required=True)
-    tag.add_argument("--noise-floor", required=True, type=float)
-    tag.add_argument("--config", type=Path)
-    commands.add_parser("index")
-    commands.add_parser("verify")
-    export = commands.add_parser("export")
-    export.add_argument("--url")
-    export.add_argument("--replace", action="store_true")
-    sql = commands.add_parser("query")
-    sql.add_argument("sql", nargs="?")
-    sql.add_argument("--file", type=Path)
-    sql.add_argument("--name")
-    sql.add_argument("--format", choices=("table", "csv", "json"), default="table")
+    ingest = commands.add_parser("ingest", help="Read CSV or OpenFAST .out files into the dataset.")
+    ingest.add_argument("files", nargs="+", help="CSV or OpenFAST .out files to read.")
+    ingest.add_argument("--time-column", default="time", help="CSV time column name (default: time).")
+    ingest.add_argument("--units", type=Path, help="JSON file that maps CSV channel names to units.")
+    ingest.add_argument("--attrs", type=Path, help="JSON file that maps input file names to attributes.")
+    ingest.add_argument("--overwrite", action="store_true", help="Replace existing records.")
+    check = commands.add_parser("check", help="Check record quality.")
+    check.add_argument("--config", type=Path, help="JSON file with CheckConfig fields.")
+    tag = commands.add_parser("tag", help="Tag signal intervals.")
+    tag.add_argument("--channel", required=True, help="Channel to tag.")
+    tag.add_argument("--noise-floor", required=True, type=float, help="Positive noise floor in channel units; overrides the config file.")
+    tag.add_argument("--config", type=Path, help="JSON file with SegmentConfig fields.")
+    commands.add_parser("index", help="Rebuild the local catalog.")
+    commands.add_parser("verify", help="Check dataset files and sidecars.")
+    export = commands.add_parser("export", help="Copy the catalog to a SQL database.")
+    export.add_argument("--url", help="Target database URL (default: RUNLOG_DB_URL).")
+    export.add_argument("--replace", action="store_true", help="Drop and recreate existing catalog tables.")
+    sql = commands.add_parser("query", help="Read rows from the local catalog.")
+    sql.add_argument("sql", nargs="?", help="SQL query to run.")
+    sql.add_argument("--file", type=Path, help="SQL file with named queries.")
+    sql.add_argument("--name", help="Query name from the SQL file.")
+    sql.add_argument("--format", choices=("table", "csv", "json"), default="table", help="Output format (default: table).")
     for command in commands.choices.values():
-        command.add_argument("--dataset", required=True, type=Path)
+        command.add_argument("--dataset", required=True, type=Path, help="Dataset directory.")
     return parser
 
 
 def _json(path: Path | None) -> dict:
     data = json.loads(path.read_text(encoding="utf-8")) if path else {}
     if not isinstance(data, dict):
-        raise ValueError("JSON input must contain an object")
+        raise ValueError("invalid JSON input: expected an object")
     return data
 
 
@@ -60,21 +60,21 @@ def _query_sql(args: argparse.Namespace) -> str:
     if args.sql is not None and args.file is None and args.name is None:
         return args.sql
     if args.sql is not None or args.file is None or args.name is None:
-        raise ValueError("Use inline SQL or both --file and --name")
+        raise ValueError("use inline SQL or both --file and --name")
     queries = named_queries(args.file)
     if args.name not in queries:
-        raise ValueError("Query name not found")
+        raise ValueError("query name not found")
     return queries[args.name]
 
 
 def _export_catalog(args: argparse.Namespace) -> None:
     url = args.url or os.environ.get("RUNLOG_DB_URL")
     if not url:
-        raise ValueError("Set --url or RUNLOG_DB_URL")
+        raise ValueError("set --url or RUNLOG_DB_URL")
     try:
         from .export import export_catalog
     except ImportError:
-        raise ValueError("Install runlog with the mysql extra to export") from None
+        raise ValueError("install runlog with the mysql extra to export") from None
     _print_rows([export_catalog(args.dataset, url, args.replace)], "table")
 
 
@@ -93,7 +93,7 @@ def _ingest(args: argparse.Namespace) -> int:
             frame, file_units = read_csv(path, args.time_column), units
         write_record(frame, args.dataset, path.stem, file_units, path,
                      attrs.get(path.name, {}), args.overwrite)
-    print(f"Ingested {len(args.files)} records.")
+    print(f"Records ingested: {len(args.files)}.")
     return 0
 
 
@@ -132,9 +132,9 @@ def _analyze(args: argparse.Namespace) -> int:
         (folder / sidecar.name).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         count += 1
     if args.command == "check":
-        print(f"Checked {count} records: {failures} failed checks.")
+        print(f"Records checked: {count}. Failed checks: {failures}.")
     else:
-        print(f"Tagged {count} records.")
+        print(f"Records tagged: {count}.")
     return int(failures > 0)
 
 

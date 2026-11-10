@@ -184,7 +184,7 @@ def clipping(values: ArrayLike, record_id: str, channel: str,
 
 def spikes(values: ArrayLike, record_id: str, channel: str,
            config: CheckConfig = CheckConfig()) -> CheckResult:
-    """Count robust z-scores above the spike limit."""
+    """Count samples whose spike score exceeds spike_z."""
     values = np.asarray(values, dtype=float)
     error = _values_error(values)
     value = None
@@ -194,8 +194,8 @@ def spikes(values: ArrayLike, record_id: str, channel: str,
         residual = values - rolling.median().to_numpy()
         mad = rolling.apply(lambda x: np.median(np.abs(x - np.median(x))), raw=True).to_numpy()
         global_mad = np.median(np.abs(residual - np.median(residual)))
-        # 101 samples stabilize local MAD; the global floor prevents small local
-        # scales from turning Gaussian noise into false alarms at the 8-sigma limit.
+        # 101 samples stabilize local MAD. The global floor limits false alarms
+        # from small local scales in Gaussian noise at the 8-sigma limit.
         scale = 1.4826 * np.maximum(mad, global_mad)
         steps = np.abs(np.diff(values))
         quantum = _step_resolution(steps, 0.0, config.resolution_min_fraction)
@@ -227,7 +227,7 @@ def run_checks(frame: pd.DataFrame, record_id: str,
                config: CheckConfig = CheckConfig()) -> list[CheckResult]:
     """Run time checks, channel checks and configured derivative pairs."""
     if "time" not in frame:
-        raise ValueError("missing time column: time")
+        raise ValueError("missing column: time")
     time = frame["time"].to_numpy(dtype=float)
     results = [check(time, record_id, config) for check in (time_monotonic, sample_rate, gaps, duration)]
     for channel in frame.columns:

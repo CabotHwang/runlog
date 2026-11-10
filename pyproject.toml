@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "runlog"
 version = "0.1.0"
 description = "Check and tag multi-channel time-series test logs."
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{name = "Can Huang"}]
 dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=15"]
 

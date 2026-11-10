@@ -53,6 +53,7 @@ def test_quiet_and_offset():
     assert report.segments[0].start_s == 0
     assert report.segments[0].end_s == pytest.approx(40)
     assert report.segments[0].rms == 0
+    assert report.segments[0].peak_freq_hz is None
 
 
 def test_short_quiet_has_no_frequency():
@@ -97,7 +98,7 @@ def test_mismatched_input():
         tag_segments([[0, 1]], [[1, 2]], "r", "x", SegmentConfig(0.1))
 
 
-def test_no_invented_tag():
+def test_growing_signal_has_no_tags():
     time = np.arange(0, 60, 0.05)
     values = (1 + time / 5) * np.sin(2 * np.pi * time)
     report = tag_segments(time, values, "r", "x", SegmentConfig(0.01))
