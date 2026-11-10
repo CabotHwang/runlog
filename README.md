@@ -118,17 +118,21 @@ The table gives the default rules.
 | `non_finite` | Each channel has no NaN or infinite values. |
 | `flatline` | Each run of identical values lasts at most 2 s. |
 | `clipping` | Runs at channel limits contain at most 1% of samples. Each counted run has at least three samples. |
-| `spikes` | No second-difference score exceeds 8. Each consecutive run above the limit counts as one event. The centered scale window has 101 samples. |
+| `spikes` | No curvature-residual score exceeds 8. Each consecutive run above the limit counts as one event. The centered trend window has 7 samples. The centered scale window has 101 samples. |
 | `derivative_pair` | Normalized RMS error between position gradient and velocity is at most 0.05. Pairs require configuration. |
 
 The `spikes` check uses the second difference: `d2[i] = x[i-1] - 2*x[i] + x[i+1]`.
 It uses the interior samples, where both neighbours are present.
-The spike score is `abs(d2)` divided by the scale.
-The scale uses two centered rolling medians.
-First, `m[i]` is the rolling median of `d2`.
-Then, the scale is `1.4826 * rolling_median(abs(d2 - m))`.
+The curvature residual is `r = d2 - rolling_median(d2)`.
+This median uses `spike_detrend_window` samples (7 by default).
+The spike score is `abs(r)` divided by the scale.
+First, `m[i]` is the rolling median of `r` over `spike_window` samples.
+Then, the residual scale is `1.4826 * rolling_median(abs(r - m))` over the same window.
 Each absolute deviation uses the median at its own sample.
-Both windows use `spike_window` samples and use the available samples at the record ends.
+The scale is also at least the local interquartile range of `d2` divided by 1.349.
+The interquartile range is the 75th percentile minus the 25th percentile over `spike_window` samples.
+This lower limit prevents a zero residual scale on smooth curves.
+All windows are centered and use the available samples at the record ends.
 The scale is at least `8 * quantum / sqrt(2)`.
 Uniform rounding error has variance `quantum**2 / 12`.
 The second-difference weights give a variance six times as large, or a standard deviation of `quantum / sqrt(2)`.
@@ -139,9 +143,9 @@ The estimate tests up to 32 subdivisions of the smallest observed spacing.
 A channel with only two distinct values gives no quantum.
 Each consecutive run of scores above `spike_z` counts as one event.
 The check value is the number of events.
-A zero scale gives a zero score for a zero second difference and an infinite score for a nonzero second difference.
-If the scale and the second differences are all zero, the result is `not_testable`.
-The `spike_window` value is an odd integer of at least three samples.
+A zero scale gives a zero score for a zero residual and an infinite score for a nonzero residual.
+If the scale and the residuals are all zero, the result is `not_testable`.
+The `spike_window` and `spike_detrend_window` values are odd integers of at least three samples.
 For the `sample_rate` check, timestamp resolution is the smallest nonzero absolute deviation from the median step that occurs in at least 5% of non-gap steps.
 Gap steps and floating-point roundoff do not count.
 Set `resolution_min_fraction` to change this fraction.
@@ -304,7 +308,8 @@ Use `--config` to set thresholds for your data. One configuration applies to all
 A channel that is constant by design fails flatline unless it is left out of the channel selection.
 A step change counts as a spike event.
 Spike sensitivity falls when the sampling rate is low compared with the signal frequency.
-For a signal with little noise, a spike window shorter than one cycle can report smooth oscillation as spikes.
+Sharp physical features, such as an angle wrap or a tower passage in a blade load, count as events.
+Use `--channels` to select channels or set a larger `spike_z` for these channels.
 Rounded or simulated data with repeated extrema can fail the clipping check.
 A slow ramp between plateaus can extend a steady interval and bias its RMS.
 A mean drift during a transition can leave the transition without a tag.

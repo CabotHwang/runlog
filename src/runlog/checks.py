@@ -23,16 +23,15 @@ class CheckConfig:
     resolution_min_fraction: float = 0.05
     expected_rate_hz: float | None = None
     channels: tuple[str, ...] | None = None
+    spike_detrend_window: int = 7
 
     def __post_init__(self) -> None:
         if self.channels is not None:
             object.__setattr__(self, "channels", tuple(self.channels))
-        if (
-            type(self.spike_window) is not int
-            or self.spike_window < 3
-            or self.spike_window % 2 == 0
-        ):
-            raise ValueError("spike_window must be an odd integer of at least 3")
+        for name in ("spike_window", "spike_detrend_window"):
+            window = getattr(self, name)
+            if type(window) is not int or window < 3 or window % 2 == 0:
+                raise ValueError(f"{name} must be an odd integer of at least 3")
 
 
 @dataclass(frozen=True)
@@ -238,30 +237,35 @@ def clipping(
 def spikes(
     values: ArrayLike, record_id: str, channel: str, config: CheckConfig = CheckConfig()
 ) -> CheckResult:
-    """Count consecutive runs whose second-difference score exceeds spike_z."""
+    """Count runs whose curvature-residual score exceeds spike_z."""
     values = np.asarray(values, dtype=float)
     error = _values_error(values)
     value = None
     if not error:
-        # Second differences suppress smooth oscillation by about (w * dt)**2.
-        # A one-sample spike gives three adjacent impulses, counted as one event.
+        # A seven-sample median follows curvature and rejects a three-sample impulse.
         d2 = np.diff(values, n=2)
         series = pd.Series(d2)
-        median = series.rolling(config.spike_window, center=True, min_periods=1).median()
-        mad = (series - median).abs().rolling(
+        residual = series - series.rolling(
+            config.spike_detrend_window, center=True, min_periods=1
+        ).median()
+        median = residual.rolling(config.spike_window, center=True, min_periods=1).median()
+        mad = (residual - median).abs().rolling(
             config.spike_window, center=True, min_periods=1
         ).median().to_numpy()
-        scale = 1.4826 * mad
+        # A curvature IQR floor avoids zero MAD on sparse median residuals.
+        window = series.rolling(config.spike_window, center=True, min_periods=1)
+        curvature_scale = (window.quantile(0.75) - window.quantile(0.25)).to_numpy() / 1.349
+        scale = np.maximum(1.4826 * mad, curvature_scale)
         quantum = _lattice_quantum(values)
-        # Uniform rounding error has variance q**2/12; d2 weights (1,-2,1)
-        # give variance 6*q**2/12 and SD q/sqrt(2). Use an 8x safety factor
-        # for smooth curvature where quantisation collapses the local MAD.
+        # Rounding gives d2 SD q/sqrt(2); retain the 8x lattice safety factor.
         scale = np.maximum(scale, 8 * quantum / np.sqrt(2))
-        if not np.any(scale) and not np.any(d2):
+        residual = residual.to_numpy()
+        if not np.any(scale) and not np.any(residual):
             error = "median absolute deviation is zero"
         else:
             score = np.divide(
-                np.abs(d2), scale, out=np.where(d2 == 0, 0.0, np.inf), where=scale > 0
+                np.abs(residual), scale,
+                out=np.where(residual == 0, 0.0, np.inf), where=scale > 0
             )
             value = float(len(_runs(score > config.spike_z)[0]))
     return _result(record_id, "spikes", channel, value, 0.0, error)
