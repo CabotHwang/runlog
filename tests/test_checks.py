@@ -5,8 +5,17 @@ import pandas as pd
 import pytest
 
 from runlog import (
-    CheckConfig, clipping, derivative_pair, duration, flatline, gaps,
-    non_finite, run_checks, sample_rate, spikes, time_monotonic,
+    CheckConfig,
+    clipping,
+    derivative_pair,
+    duration,
+    flatline,
+    gaps,
+    non_finite,
+    run_checks,
+    sample_rate,
+    spikes,
+    time_monotonic,
 )
 
 
@@ -19,13 +28,16 @@ def test_time_checks_pass(check):
     assert result.value is not None
 
 
-@pytest.mark.parametrize("check,time", [
-    (time_monotonic, np.r_[np.arange(100), 99]),
-    (time_monotonic, np.arange(100)[::-1]),
-    (sample_rate, np.r_[np.arange(100) * 0.1, 10.001, 10.15]),
-    (gaps, np.r_[np.arange(100) * 0.1, 12.0]),
-    (duration, np.arange(20) * 0.1),
-])
+@pytest.mark.parametrize(
+    "check,time",
+    [
+        (time_monotonic, np.r_[np.arange(100), 99]),
+        (time_monotonic, np.arange(100)[::-1]),
+        (sample_rate, np.r_[np.arange(100) * 0.1, 10.001, 10.15]),
+        (gaps, np.r_[np.arange(100) * 0.1, 12.0]),
+        (duration, np.arange(20) * 0.1),
+    ],
+)
 def test_time_checks_fail(check, time):
     result = check(time, "r")
     assert result.status == "fail"
@@ -62,11 +74,14 @@ def test_channel_checks_pass(check):
     assert result.channel == "x"
 
 
-@pytest.mark.parametrize("check,values", [
-    (non_finite, np.r_[np.arange(100), np.nan, np.inf, -np.inf]),
-    (clipping, np.clip(np.sin(np.arange(200) * 0.13), -0.5, 0.5)),
-    (spikes, np.r_[np.sin(np.arange(200) * 0.13), 100]),
-])
+@pytest.mark.parametrize(
+    "check,values",
+    [
+        (non_finite, np.r_[np.arange(100), np.nan, np.inf, -np.inf]),
+        (clipping, np.clip(np.sin(np.arange(200) * 0.13), -0.5, 0.5)),
+        (spikes, np.r_[np.sin(np.arange(200) * 0.13), 100]),
+    ],
+)
 def test_channel_checks_fail(check, values):
     assert check(values, "r", "x").status == "fail"
 
@@ -114,7 +129,10 @@ def test_resolution_requires_five_percent_of_regular_steps(count, status):
     steps[::20][:count] += 0.001
     time = np.r_[0, np.cumsum(steps)]
     assert sample_rate(time, "r").status == status
-    assert sample_rate(time, "r", CheckConfig(resolution_min_fraction=0.06)).status == "fail"
+    assert (
+        sample_rate(time, "r", CheckConfig(resolution_min_fraction=0.06)).status
+        == "fail"
+    )
 
 
 @pytest.mark.parametrize("expected,status", [(50, "fail"), (100, "pass")])
@@ -148,7 +166,7 @@ def test_isolated_channel_spike_does_not_set_quantum(index):
 @pytest.mark.parametrize("count,expected", [(24, 24), (25, 0)])
 def test_channel_quantum_requires_fraction_of_all_steps(count, expected):
     values = np.zeros(1001)
-    values[10:10 + 20 * count:20] = 1
+    values[10 : 10 + 20 * count : 20] = 1
     assert spikes(values, "r", "x").value == expected
     config = CheckConfig(resolution_min_fraction=0.06)
     assert spikes(values, "r", "x", config).value == count
@@ -183,11 +201,14 @@ def test_flatline_pass_and_fail():
     assert flatline(time, np.ones(100), "r", "x").status == "fail"
 
 
-@pytest.mark.parametrize("time,values", [
-    (np.arange(9), np.ones(9)),
-    (np.arange(100)[::-1], np.ones(100)),
-    (np.arange(100), np.r_[np.zeros(99), np.nan]),
-])
+@pytest.mark.parametrize(
+    "time,values",
+    [
+        (np.arange(9), np.ones(9)),
+        (np.arange(100)[::-1], np.ones(100)),
+        (np.arange(100), np.r_[np.zeros(99), np.nan]),
+    ],
+)
 def test_flatline_not_testable(time, values):
     assert flatline(time, values, "r", "x").status == "not_testable"
 
@@ -201,12 +222,15 @@ def test_derivative_pair_pass_and_fail():
     assert result.value > result.threshold
 
 
-@pytest.mark.parametrize("time,position,velocity", [
-    (np.arange(9), np.arange(9), np.arange(9)),
-    (np.arange(100)[::-1], np.arange(100), np.arange(100)),
-    (np.arange(100), np.arange(100), np.ones(100)),
-    (np.arange(100), np.r_[np.arange(99), np.inf], np.arange(100)),
-])
+@pytest.mark.parametrize(
+    "time,position,velocity",
+    [
+        (np.arange(9), np.arange(9), np.arange(9)),
+        (np.arange(100)[::-1], np.arange(100), np.arange(100)),
+        (np.arange(100), np.arange(100), np.ones(100)),
+        (np.arange(100), np.r_[np.arange(99), np.inf], np.arange(100)),
+    ],
+)
 def test_derivative_pair_not_testable(time, position, velocity):
     result = derivative_pair(time, position, velocity, "r", "x")
     assert result.status == "not_testable"
@@ -215,8 +239,13 @@ def test_derivative_pair_not_testable(time, position, velocity):
 
 def test_run_checks():
     time = np.arange(1000) * 0.02
-    frame = pd.DataFrame({"time": time, "position": np.sin(time), "velocity": np.cos(time)})
-    config = CheckConfig(derivative_pairs=(("position", "velocity"), ("missing", "velocity")))
+    frame = pd.DataFrame(
+        {"time": time, "position": np.sin(time), "velocity": np.cos(time)}
+    )
+    config = CheckConfig(
+        spike_window=315,
+        derivative_pairs=(("position", "velocity"), ("missing", "velocity")),
+    )
     results = run_checks(frame, "r", config)
     assert len(results) == 14
     assert all(result.status == "pass" for result in results[:-1])
@@ -229,14 +258,28 @@ def test_run_checks():
 
 
 def test_config_thresholds():
-    assert duration(np.arange(100) * 0.1, "r", CheckConfig(min_duration_s=9)).status == "pass"
-    assert non_finite(np.r_[np.ones(99), np.nan], "r", "x",
-                      CheckConfig(non_finite_fraction=0.01)).status == "pass"
-    assert clipping(np.clip(np.sin(np.arange(200)), -0.5, 0.5), "r", "x",
-                    CheckConfig(clipping_fraction=1)).status == "pass"
+    assert (
+        duration(np.arange(100) * 0.1, "r", CheckConfig(min_duration_s=9)).status
+        == "pass"
+    )
+    assert (
+        non_finite(
+            np.r_[np.ones(99), np.nan], "r", "x", CheckConfig(non_finite_fraction=0.01)
+        ).status
+        == "pass"
+    )
+    assert (
+        clipping(
+            np.clip(np.sin(np.arange(200)), -0.5, 0.5),
+            "r",
+            "x",
+            CheckConfig(clipping_fraction=1),
+        ).status
+        == "pass"
+    )
 
 
-def test_hampel_quiet_then_large_sine():
+def test_spikes_quiet_then_large_sine():
     rng = np.random.default_rng(42)
     values = np.r_[rng.normal(0, 1, 700), 100 * np.sin(np.arange(300) * 0.13)]
     assert spikes(values, "r", "x").value == 0
@@ -251,15 +294,18 @@ def test_invalid_spike_window(window):
 
 
 def test_spikes_white_noise_false_alarm_rate():
-    clean = sum(spikes(np.random.default_rng(seed).normal(size=100_000), "r", "x").value == 0
-                for seed in range(20))
+    clean = sum(
+        spikes(np.random.default_rng(seed).normal(size=100_000), "r", "x").value == 0
+        for seed in range(20)
+    )
     assert clean >= 19
 
 
 @pytest.mark.parametrize("index", [0, 500, 999])
-def test_spikes_detects_ten_sigma_impulse(index):
+def test_spikes_detects_twenty_five_sigma_impulse(index):
     values = np.random.default_rng(0).normal(size=1000)
-    values[index] = 10.0
+    # d2 amplifies white-noise SD by sqrt(6); endpoint impulses have unit gain.
+    values[index] = 25.0
     result = spikes(values, "r", "x")
     assert result.status == "fail"
     assert result.value == 1
@@ -272,8 +318,17 @@ def test_time_violation_count_and_short_records():
     assert time_monotonic([np.nan], "r").status == "not_testable"
 
 
-@pytest.mark.parametrize("time,status", [([], "fail"), ([0], "fail"),
-    ([0, 1, 2], "fail"), ([0, 10], "pass"), ([0, 5, 10], "pass"),
-    ([0, np.nan], "not_testable"), ([1, 0], "not_testable")])
+@pytest.mark.parametrize(
+    "time,status",
+    [
+        ([], "fail"),
+        ([0], "fail"),
+        ([0, 1, 2], "fail"),
+        ([0, 10], "pass"),
+        ([0, 5, 10], "pass"),
+        ([0, np.nan], "not_testable"),
+        ([1, 0], "not_testable"),
+    ],
+)
 def test_short_duration(time, status):
     assert duration(time, "r").status == status

@@ -27,8 +27,13 @@ def make_analysis(dataset, command, options=None, channel="x", noise_floor=0.1):
     return path, json.loads(path.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("options", [None, {"spike_window": 51, "min_duration_s": 20,
-                                         "derivative_pairs": [["x", "y"]]}])
+@pytest.mark.parametrize(
+    "options",
+    [
+        None,
+        {"spike_window": 51, "min_duration_s": 20, "derivative_pairs": [["x", "y"]]},
+    ],
+)
 def test_checks_store_effective_config_and_version(tmp_path, options):
     dataset = tmp_path / "dataset"
     _, report = make_analysis(dataset, "check", options)
@@ -41,7 +46,14 @@ def test_checks_store_effective_config_and_version(tmp_path, options):
 def test_tag_preserves_each_channels_effective_config(tmp_path):
     dataset = tmp_path / "dataset"
     _, first = make_analysis(dataset, "tag")
-    options = {"window_s": 2, "rel_tol": 0.2, "min_steady_s": 5, "noise_floor": 99}
+    options = {
+        "window_s": 2,
+        "rel_tol": 0.2,
+        "min_steady_s": 5,
+        "noise_floor": 99,
+        "transition_low": 0.2,
+        "transition_high": 0.8,
+    }
     _, data = make_analysis(dataset, "tag", options, channel="y", noise_floor=0.3)
     assert data["channels"]["x"] == first["channels"]["x"]
     assert data["channels"]["x"]["config"] == asdict(SegmentConfig(0.1))
@@ -69,14 +81,18 @@ def test_missing_provenance_names_field(tmp_path, command, field):
     errors = verify_dataset(dataset)
     assert len(errors) == 1
     assert f"{path.parent.name}/r.json" in errors[0]
-    assert errors == [f"invalid analysis sidecar: {path.parent.name}/r.json: missing field {field}"]
+    assert errors == [
+        f"invalid analysis sidecar: {path.parent.name}/r.json: missing field {field}"
+    ]
     assert main(["verify", "--dataset", str(dataset)]) == 1
     assert main(["index", "--dataset", str(dataset)]) == 2
 
 
 @pytest.mark.parametrize("command", ["check", "tag"])
-@pytest.mark.parametrize("field,value", [("runlog_version", None), ("runlog_version", " "),
-                                        ("config", []), ("config", {})])
+@pytest.mark.parametrize(
+    "field,value",
+    [("runlog_version", None), ("runlog_version", " "), ("config", []), ("config", {})],
+)
 def test_invalid_provenance_is_schema_error(tmp_path, command, field, value):
     dataset = tmp_path / "dataset"
     path, data = make_analysis(dataset, command)
