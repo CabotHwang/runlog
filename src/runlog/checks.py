@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike, NDArray
 
+from .check_pair import _pair_span, _simpson_spans
 from .check_resolution import _lattice_quantum, _step_resolution
 
 
@@ -24,10 +25,14 @@ class CheckConfig:
     expected_rate_hz: float | None = None
     channels: tuple[str, ...] | None = None
     spike_detrend_window: int = 7
+    derivative_pair_span_s: float | None = None
 
     def __post_init__(self) -> None:
         if self.channels is not None:
             object.__setattr__(self, "channels", tuple(self.channels))
+        span = self.derivative_pair_span_s
+        if span is not None and (not np.isfinite(span) or span <= 0):
+            raise ValueError("derivative_pair_span_s must be positive and finite")
         for name in ("spike_window", "spike_detrend_window"):
             window = getattr(self, name)
             if type(window) is not int or window < 3 or window % 2 == 0:
@@ -293,7 +298,7 @@ def derivative_pair(
     channel: str,
     config: CheckConfig = CheckConfig(),
 ) -> CheckResult:
-    """Compare two-step position changes with Simpson velocity integrals."""
+    """Compare position changes with composite Simpson velocity integrals."""
     time = np.asarray(time, dtype=float)
     position, velocity = (
         np.asarray(position, dtype=float),
@@ -312,9 +317,14 @@ def derivative_pair(
     value = None
     if not error:
         dt = np.median(np.diff(time))
-        integral = dt / 3 * (velocity[:-2] + 4 * velocity[1:-1] + velocity[2:])
-        residual = position[2:] - position[:-2] - integral
-        value = float(np.sqrt(np.mean(residual**2)) / np.std(position))
+        steps = _pair_span(position, dt, config.derivative_pair_span_s)
+        error = f"span {steps} steps ({steps * dt:g} s)"
+        if len(time) - 1 < 4 * steps:
+            error += "; record is shorter than 4 spans"
+        else:
+            integral = _simpson_spans(velocity, dt, steps)
+            residual = position[steps:] - position[:-steps] - integral
+            value = float(np.sqrt(np.mean(residual**2)) / np.std(position))
     return _result(
         record_id,
         "derivative_pair",

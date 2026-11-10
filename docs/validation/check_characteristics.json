@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "runlog_version": "0.2.2",
+  "protocol": {"seed_start": 20261110, "trials": 20, "samples": 36000, "rate_hz": 10, "duration_s": 3600.0, "sine_amplitude_m": 0.15, "sine_frequency_hz": 0.2, "sine_noise_sd_m": 0.001, "pair_duration_s": 600, "position_noise_sd": "1% of sine amplitude", "noise_distributions": "unit SD; stationary AR(1) initial value; Student-t divided by sqrt(2)", "glitch": "one positive rectangular pulse per record at a seeded interior sample", "detection": "event count exceeds matched unmodified record", "steady_rms": "duration-weighted quadratic mean of segment RMS; null when no steady segment", "random_response": "FFT mask 0.18-0.22 Hz; scaled to 0.15/sqrt(2) m SD", "check_config": {"spike_z": 8.0, "spike_window": 101, "spike_detrend_window": 7, "derivative_pair_rel_tol": 0.05}, "segment_config": {"window_s": 10, "min_steady_s": 30, "transition_low": 0.3, "transition_high": 0.9}},
+  "spikes_false_alarms": [
+    {"signal": "gaussian", "failed": 0, "trials": 20},
+    {"signal": "ar1_phi_0.9", "failed": 0, "trials": 20},
+    {"signal": "uniform", "failed": 0, "trials": 20},
+    {"signal": "student_t_df4", "failed": 20, "trials": 20},
+    {"signal": "noisy_sine", "failed": 0, "trials": 20}
+  ],
+  "spikes_detection": [
+    {"width_samples": 1, "height_noise_sd": 10, "detected": 2, "trials": 20},
+    {"width_samples": 1, "height_noise_sd": 20, "detected": 20, "trials": 20},
+    {"width_samples": 1, "height_noise_sd": 50, "detected": 20, "trials": 20},
+    {"width_samples": 1, "height_noise_sd": 200, "detected": 20, "trials": 20},
+    {"width_samples": 2, "height_noise_sd": 10, "detected": 0, "trials": 20},
+    {"width_samples": 2, "height_noise_sd": 20, "detected": 5, "trials": 20},
+    {"width_samples": 2, "height_noise_sd": 50, "detected": 20, "trials": 20},
+    {"width_samples": 2, "height_noise_sd": 200, "detected": 20, "trials": 20},
+    {"width_samples": 3, "height_noise_sd": 10, "detected": 0, "trials": 20},
+    {"width_samples": 3, "height_noise_sd": 20, "detected": 5, "trials": 20},
+    {"width_samples": 3, "height_noise_sd": 50, "detected": 20, "trials": 20},
+    {"width_samples": 3, "height_noise_sd": 200, "detected": 20, "trials": 20},
+    {"width_samples": 5, "height_noise_sd": 10, "detected": 0, "trials": 20},
+    {"width_samples": 5, "height_noise_sd": 20, "detected": 3, "trials": 20},
+    {"width_samples": 5, "height_noise_sd": 50, "detected": 20, "trials": 20},
+    {"width_samples": 5, "height_noise_sd": 200, "detected": 20, "trials": 20}
+  ],
+  "derivative_pair": [
+    {"rate_hz": 5, "case": "velocity_scale_2%", "score": 0.027395272084290934, "status": "pass", "message": "span 6 steps (1.2 s)"},
+    {"rate_hz": 5, "case": "velocity_scale_5%", "score": 0.06844234443268828, "status": "fail", "message": "span 6 steps (1.2 s)"},
+    {"rate_hz": 5, "case": "velocity_scale_10%", "score": 0.13685413168001723, "status": "fail", "message": "span 6 steps (1.2 s)"},
+    {"rate_hz": 5, "case": "position_noise_1pct", "score": 0.020037594884992033, "status": "pass", "message": "span 6 steps (1.2 s)"},
+    {"rate_hz": 10, "case": "velocity_scale_2%", "score": 0.02736575230260879, "status": "pass", "message": "span 12 steps (1.2 s)"},
+    {"rate_hz": 10, "case": "velocity_scale_5%", "score": 0.06841153221931201, "status": "fail", "message": "span 12 steps (1.2 s)"},
+    {"rate_hz": 10, "case": "velocity_scale_10%", "score": 0.1368211654138174, "status": "fail", "message": "span 12 steps (1.2 s)"},
+    {"rate_hz": 10, "case": "position_noise_1pct", "score": 0.01995070550657191, "status": "pass", "message": "span 12 steps (1.2 s)"},
+    {"rate_hz": 20, "case": "velocity_scale_2%", "score": 0.029139552648884195, "status": "pass", "message": "span 26 steps (1.3 s)"},
+    {"rate_hz": 20, "case": "velocity_scale_5%", "score": 0.07284869230308938, "status": "fail", "message": "span 26 steps (1.3 s)"},
+    {"rate_hz": 20, "case": "velocity_scale_10%", "score": 0.14569725839343134, "status": "fail", "message": "span 26 steps (1.3 s)"},
+    {"rate_hz": 20, "case": "position_noise_1pct", "score": 0.02018734031613287, "status": "pass", "message": "span 26 steps (1.3 s)"},
+    {"rate_hz": 100, "case": "velocity_scale_2%", "score": 0.028442509700868642, "status": "pass", "message": "span 126 steps (1.26 s)"},
+    {"rate_hz": 100, "case": "velocity_scale_5%", "score": 0.07110627395857992, "status": "fail", "message": "span 126 steps (1.26 s)"},
+    {"rate_hz": 100, "case": "velocity_scale_10%", "score": 0.1422125477214321, "status": "fail", "message": "span 126 steps (1.26 s)"},
+    {"rate_hz": 100, "case": "position_noise_1pct", "score": 0.019981109518201704, "status": "pass", "message": "span 126 steps (1.26 s)"}
+  ],
+  "steady_limit_cycle": [
+    {"status": "ok", "steady_time_s": 3600.0, "segment_count": 1, "segment_rms_m": [0.10605943303751428], "steady_rms_m": 0.10605943303751428, "noise_amplitude_fraction": 0.01, "noise_floor_m": 0.0045000000000000005, "true_rms_m": 0.10606601717798211, "rel_tol": 0.05, "rms_bias_pct": -0.006207587164119843},
+    {"status": "ok", "steady_time_s": 3600.0, "segment_count": 1, "segment_rms_m": [0.10646416266682397], "steady_rms_m": 0.10646416266682397, "noise_amplitude_fraction": 0.07, "noise_floor_m": 0.0315, "true_rms_m": 0.10606601717798211, "rel_tol": 0.05, "rms_bias_pct": 0.37537516674521765},
+    {"status": "ok", "steady_time_s": 3497.4, "segment_count": 13, "segment_rms_m": [0.10972368609151513, 0.1105013727401564, 0.11052689758145642, 0.11039291598747605, 0.1079587116899608, 0.10990556356672986, 0.10973311262088703, 0.10991764564826538, 0.11000391328187627, 0.10928009740433894, 0.10942911033358525, 0.11030786857352819, 0.10917567398835706], "steady_rms_m": 0.10980181784066301, "noise_amplitude_fraction": 0.2, "noise_floor_m": 0.09, "true_rms_m": 0.10606601717798211, "rel_tol": 0.05, "rms_bias_pct": 3.52214664232382},
+    {"status": "ok", "steady_time_s": 0.0, "segment_count": 0, "segment_rms_m": [], "steady_rms_m": null, "noise_amplitude_fraction": 0.4, "noise_floor_m": 0.18, "true_rms_m": 0.10606601717798211, "rel_tol": 0.05, "rms_bias_pct": null}
+  ],
+  "steady_random_response": [
+    {"rel_tol": 0.05, "noise_floor_m": 0.003, "status": "ok", "steady_time_s": 0.0, "segment_count": 0, "segment_rms_m": [], "steady_rms_m": null},
+    {"rel_tol": 0.25, "noise_floor_m": 0.003, "status": "ok", "steady_time_s": 1553.0999999999988, "segment_count": 34, "segment_rms_m": [0.08452501235751232, 0.10489417643755736, 0.16149747925415817, 0.0869986567386385, 0.08359171148953819, 0.1368026718264037, 0.15480262655489738, 0.11466010691400413, 0.10737692235331865, 0.14840115946628166, 0.16133799833692442, 0.12013561953481304, 0.03170901909164812, 0.13715533471248798, 0.10676850672757175, 0.21132324208471207, 0.12682460491860342, 0.1146133252902089, 0.07583927514594416, 0.06168262640038177, 0.14611846594582728, 0.1122446461360348, 0.08672348405645676, 0.07357330891808055, 0.09672903988608152, 0.18615267695879706, 0.17780615889255866, 0.08393503302871345, 0.10656838892310291, 0.10495423667176464, 0.13238738055952465, 0.11545969464270525, 0.08812871966703929, 0.11030517900982535], "steady_rms_m": 0.12408563149059475},
+    {"rel_tol": 0.5, "noise_floor_m": 0.003, "status": "ok", "steady_time_s": 3408.1000000000004, "segment_count": 7, "segment_rms_m": [0.1096245440629522, 0.10943008327071006, 0.13287107242397567, 0.10466988331824965, 0.1022694557044192, 0.10625286068374111, 0.1039988715040555], "steady_rms_m": 0.10836013142830643}
+  ]
+}

@@ -119,7 +119,7 @@ The table gives the default rules.
 | `flatline` | Each run of identical values lasts at most 2 s. |
 | `clipping` | Runs at channel limits contain at most 1% of samples. Each counted run has at least three samples. |
 | `spikes` | No curvature-residual score exceeds 8. Each consecutive run above the limit counts as one event. The centered trend window has 7 samples. The centered scale window has 101 samples. |
-| `derivative_pair` | The RMS difference between the two-step position change and the Simpson velocity integral, divided by position standard deviation, is at most 0.05. Pairs require configuration. |
+| `derivative_pair` | The RMS difference between the position change and the composite Simpson velocity integral over the selected span, divided by position standard deviation, is at most 0.05. Pairs require configuration. |
 
 The `spikes` check uses the second difference: `d2[i] = x[i-1] - 2*x[i] + x[i+1]`.
 It uses the interior samples, where both neighbours are present.
@@ -158,9 +158,14 @@ This rate limit does not increase with timestamp resolution.
 The result message gives the expected and measured rates.
 
 The `derivative_pair` check uses `dt = median(diff(time))`.
-For each pair of steps, `d[i] = x[i+2] - x[i]` and `I[i] = dt/3 * (v[i] + 4*v[i+1] + v[i+2])`.
-The value is `RMS(d - I) / std(x)`.
-The result is `not_testable` if `sample_rate` fails, a gap is present, or position is constant.
+The default span is one quarter of the dominant position period.
+The period comes from the largest positive-frequency FFT bin after mean removal and a Hann window.
+Set `derivative_pair_span_s` to select a span in seconds.
+The span uses the nearest even number of steps, at least two. An exact tie rounds up.
+For each start sample, `d[i] = x[i+m] - x[i]`, where `m` is the span in steps.
+The composite Simpson integral `I[i]` uses weights `1, 4, 2, 4, ..., 2, 4, 1`, multiplied by `dt/3`.
+The value is `RMS(d - I) / std(x)`. The message gives the span in steps and seconds.
+The result is `not_testable` if `sample_rate` fails, a gap is present, position is constant, or the record is shorter than four spans.
 
 Checks return `not_testable` when required data are insufficient or invalid.
 Examples include fewer than 10 samples, constant channels for clipping, and invalid time for checks that require increasing time.
@@ -333,6 +338,20 @@ report = tag_segments(
 )
 ```
 
+## Validation
+
+Run `.venv/bin/python examples/validate_checks.py` to repeat the measurements.
+The [report](docs/validation/README.md) and [JSON data](docs/validation/check_characteristics.json) give the inputs and results.
+Each spike case uses 20 records of 36,000 samples with fixed seeds.
+Gaussian, AR(1), uniform, and noisy-sine records give 0/20 failed spike checks each.
+Student-t noise with four degrees of freedom gives 20/20 failed checks.
+At 20 noise SD, detections are 20, 5, 5, and 3 out of 20 for widths of 1, 2, 3, and 5 samples.
+At 50 noise SD, all four widths give 20/20 detections.
+At 5, 10, 20, and 100 Hz, a 5% velocity scale error scores 0.0684–0.0728 and fails.
+A 2% error passes; a 10% error fails; 1% position noise scores 0.0200–0.0202 and passes.
+With limit-cycle noise at 7% and 20% of amplitude, segment RMS bias is +0.38% and +3.52%.
+The random response gives 0.0, 1553.1, and 3408.1 s of steady tags out of 3600 s at `rel_tol` 0.05, 0.25, and 0.5.
+
 ## Limits
 
 Ingest preserves time errors for later checks.
@@ -342,18 +361,26 @@ A passed check does not establish physical validity.
 A channel that holds a constant value for part of a record, such as the speed of a stopped carriage, can fail the flatline and clipping checks with the default thresholds. A fully constant channel fails flatline and gives `not_testable` for clipping.
 Use `--config` to set thresholds for your data. One configuration applies to all selected channels in a `check` run.
 A channel that is constant by design fails flatline unless it is left out of the channel selection.
+The spike rule assumes noise with a Gaussian-like core. Student-t noise with four degrees of freedom produces events in 20/20 measured records.
+Glitches wider than one sample need a larger height. At 20 noise SD, widths 1, 2, 3, and 5 give 20/20, 5/20, 5/20, and 3/20 detections; at 50 SD, all give 20/20.
 A step change counts as a spike event.
 Spike sensitivity falls when the sampling rate is low compared with the signal frequency.
 Sharp physical features, such as an angle wrap or a tower passage in a blade load, count as events.
 Use `--channels` to select channels or set a larger `spike_z` for these channels.
 Rounded or simulated data with repeated extrema can fail the clipping check.
+A steady tag means near-constant amplitude, as in a limit cycle.
+A stationary random response has a fluctuating envelope. In the measured case, it gives no steady time at `rel_tol=0.05`, but 1553.1 s at 0.25 and 3408.1 s at 0.5 out of 3600 s.
+Segment RMS includes measurement noise. Noise at 7% and 20% of limit-cycle amplitude gives RMS bias of +0.38% and +3.52%. At 40%, the noise floor prevents steady tags.
 A slow ramp between plateaus can extend a steady interval and bias its RMS.
 A mean drift during a transition can leave the transition without a tag.
 The derivative-pair check needs uniform sampling.
-For an otherwise exact pair, a constant velocity offset `b` adds `2*dt*abs(b)/std(x)` to the score. An offset passes if this score is at most the tolerance.
-The check can miss velocity scale and phase errors when the position change over two steps is small.
+For an otherwise exact pair, a constant velocity offset `b` gives score `m*dt*abs(b)/std(x)`. An offset passes if this score is at most the tolerance.
+A sine with a quarter-period span gives a velocity scale-error score of about `sqrt(2)*abs(error)`, subject to even-step rounding and integration error.
+Multiple frequency peaks, drift, or noise can change the selected span. Set `derivative_pair_span_s` when the dominant period is unsuitable.
 The demo does not configure derivative pairs. Its fixed 0.5 mm position noise makes some small, clean responses exceed the default tolerance.
 The spike check does not score the record ends where the trend window is incomplete.
+
+The thresholds are engineering conventions. Only the cases in the validation report were measured.
 
 ## License
 
