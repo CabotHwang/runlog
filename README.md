@@ -198,8 +198,10 @@ Other intervals have no tag.
 
 Each segment stores `record_id`, `channel`, `start_s`, `end_s`, `tag`, `rms`, `peak_freq_hz`, `method`, and `method_version`.
 The segment RMS is the RMS about the segment mean.
-The method is `rolling_std`, version 2.
+The method is `rolling_std`, version 3.
 Peak frequency uses a Hann-window FFT.
+Log-parabolic interpolation uses the peak bin and its two neighbours.
+A peak at the spectrum end uses the bin frequency.
 Constant segments and segments shorter than the envelope window have no peak frequency.
 Records shorter than twice that window give `not_testable`.
 
@@ -286,6 +288,31 @@ time_monotonic,0,0.0
 CI runs all named queries on MySQL 8.4 and compares their results with SQLite.
 
 ## Python API
+
+Build a dataset from a pandas DataFrame. Run checks and tag sway for all records.
+Rebuild the catalog, then read the steady segments.
+The pipeline functions write analysis sidecars and return results by record id.
+
+```python
+import numpy as np
+import pandas as pd
+
+from runlog import (
+    SegmentConfig, build_catalog, check_dataset, query, tag_dataset, write_record,
+)
+
+time = np.arange(0, 300, 0.05)
+frame = pd.DataFrame({"time": time, "sway": 0.1 * np.sin(2 * np.pi * 1.0044 * time)})
+dataset = "research_dataset"
+write_record(frame, dataset, "run_01", {"sway": "m"}, source="synthetic")
+checks = check_dataset(dataset)
+reports = tag_dataset(dataset, "sway", SegmentConfig(noise_floor=0.005))
+build_catalog(dataset)
+rows = query(dataset, "SELECT record_id, rms, peak_freq_hz FROM segments WHERE tag = ?",
+             ("steady",))
+```
+
+Use the record functions to analyse one record without writing analysis sidecars.
 
 ```python
 from runlog import CheckConfig, SegmentConfig, load_record, run_checks, tag_segments

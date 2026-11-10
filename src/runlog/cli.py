@@ -4,19 +4,16 @@ import json
 import os
 import sqlite3
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
-import pandas as pd
 from pyarrow import ArrowException
 
-from . import __version__
 from .catalog import build_catalog, named_queries, query
-from .checks import CheckConfig, run_checks
-from .ingest import load_record, read_csv, read_openfast_out, read_openfast_outb, write_record
-from .manifest import read_analysis, verify_dataset
-from .schema import RecordMeta
-from .segments import SegmentConfig, tag_segments
+from .checks import CheckConfig
+from .ingest import read_csv, read_openfast_out, read_openfast_outb, write_record
+from .manifest import verify_dataset
+from .pipeline import check_dataset, tag_dataset
+from .segments import SegmentConfig
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -112,47 +109,21 @@ def _ingest(args: argparse.Namespace) -> int:
     return 0
 
 
-def _tag_record(args: argparse.Namespace, frame: pd.DataFrame, meta: RecordMeta,
-                config: SegmentConfig, path: Path) -> dict:
-    data = (read_analysis(path, meta.sha256) if path.exists() else
-            {"record_sha256": meta.sha256, "channels": {}})
-    report = {"status": "not_testable", "segments": []}
-    if args.channel in frame and args.channel != "time":
-        report = asdict(tag_segments(frame["time"], frame[args.channel], meta.record_id, args.channel, config))
-    report.update(runlog_version=__version__, config=asdict(config))
-    data["channels"][args.channel] = report
-    return data
-
-
 def _analyze(args: argparse.Namespace) -> int:
     if not (args.dataset / "records").is_dir():
         raise ValueError("missing directory: records")
     options = _json(args.config)
-    if args.command == "check" and args.channels is not None:
-        options["channels"] = tuple(name.strip() for name in args.channels.split(","))
-    config = (CheckConfig(**options) if args.command == "check" else
-              SegmentConfig(**(options | {"noise_floor": args.noise_floor})))
-    folder = args.dataset / ("checks" if args.command == "check" else "segments")
-    folder.mkdir(parents=True, exist_ok=True)
-    failures, count = 0, 0
-    for sidecar in sorted((args.dataset / "records").glob("*.json")):
-        if sidecar.name.startswith("."):
-            continue
-        frame, meta = load_record(args.dataset, sidecar.stem)
-        if args.command == "check":
-            results = run_checks(frame, meta.record_id, config)
-            failures += sum(result.status == "fail" for result in results)
-            data = {"record_sha256": meta.sha256, "runlog_version": __version__,
-                    "config": asdict(config), "checks": [asdict(result) for result in results]}
-        else:
-            data = _tag_record(args, frame, meta, config, folder / sidecar.name)
-        (folder / sidecar.name).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-        count += 1
     if args.command == "check":
-        print(f"Records checked: {count}. Failed checks: {failures}.")
-    else:
-        print(f"Records tagged: {count}.")
-    return int(failures > 0)
+        if args.channels is not None:
+            options["channels"] = tuple(name.strip() for name in args.channels.split(","))
+        reports = check_dataset(args.dataset, CheckConfig(**options))
+        failures = sum(result.status == "fail" for results in reports.values() for result in results)
+        print(f"Records checked: {len(reports)}. Failed checks: {failures}.")
+        return int(failures > 0)
+    config = SegmentConfig(**(options | {"noise_floor": args.noise_floor}))
+    reports = tag_dataset(args.dataset, args.channel, config)
+    print(f"Records tagged: {len(reports)}.")
+    return 0
 
 
 def _print_rows(rows: list[dict], output_format: str) -> None:

@@ -52,7 +52,7 @@ def test_d3_offset_buildup_preserves_quiet():
         span = values[(time >= segment.start_s) & (time < segment.end_s)]
         assert segment.rms == pytest.approx(np.sqrt(np.mean((span - span.mean()) ** 2)))
         assert segment.method == "rolling_std"
-        assert segment.method_version == 2
+        assert segment.method_version == 3
 
 
 def test_d4_modulation_preserves_transitions():

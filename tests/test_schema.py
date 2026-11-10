@@ -18,7 +18,7 @@ def test_roundtrip(tmp_path):
     meta.to_json(path)
     assert RecordMeta.from_json(path) == meta
     assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == SCHEMA_VERSION == 1
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.2.0"
     with pytest.raises(FrozenInstanceError):
         meta.source = "other.csv"
 

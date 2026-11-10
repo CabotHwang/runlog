@@ -37,7 +37,7 @@ class Segment:
     rms: float
     peak_freq_hz: float | None
     method: str = "rolling_std"
-    method_version: int = 2
+    method_version: int = 3
 
 
 @dataclass(frozen=True)
@@ -121,6 +121,18 @@ def _tag_intervals(
     return sorted(tags)
 
 
+def _peak_frequency(span: NDArray[np.float64], dt: float) -> float:
+    spectrum = np.abs(np.fft.rfft((span - np.mean(span)) * np.hanning(len(span))))
+    peak = 1 + int(np.argmax(spectrum[1:]))
+    offset = 0.0
+    if peak < len(spectrum) - 1 and np.all(spectrum[peak - 1 : peak + 2] > 0):
+        left, center, right = np.log(spectrum[peak - 1 : peak + 2])
+        curvature = left - 2 * center + right
+        if curvature != 0:
+            offset = float(0.5 * (left - right) / curvature)
+    return float((peak + offset) / (len(span) * dt))
+
+
 def _make_segment(
     time: NDArray[np.float64],
     values: NDArray[np.float64],
@@ -140,9 +152,7 @@ def _make_segment(
         and len(span) >= 2
         and np.ptp(span) > 0
     ):
-        spectrum = np.abs(np.fft.rfft((span - np.mean(span)) * np.hanning(len(span))))
-        frequencies = np.fft.rfftfreq(len(span), d=float(np.median(np.diff(time))))
-        frequency = float(frequencies[1 + np.argmax(spectrum[1:])])
+        frequency = _peak_frequency(span, float(np.median(np.diff(time))))
     return Segment(
         record_id, channel, float(edges[start]), float(edges[stop]), tag, rms, frequency
     )

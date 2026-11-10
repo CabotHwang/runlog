@@ -32,7 +32,7 @@ def test_analytic_envelope():
         assert segment.record_id == "r"
         assert segment.channel == "sway"
         assert segment.method == "rolling_std"
-        assert segment.method_version == 2
+        assert segment.method_version == 3
         assert segment.start_s < segment.end_s
     steady = report.segments[2]
     assert steady.rms == pytest.approx(np.sqrt(2), rel=0.02)
@@ -66,7 +66,7 @@ def test_quiet_and_offset():
 
 def test_short_quiet_has_no_frequency():
     time = np.arange(0, 40, 0.05)
-    amplitude = np.where(time < 2, 0, 2)
+    amplitude = np.where(time < 2, 0.01, 2)
     report = tag_segments(
         time,
         amplitude * np.sin(2 * np.pi * time),
@@ -226,3 +226,23 @@ def test_transition_limits_control_boundaries():
     assert custom_buildup.end_s > default_buildup.end_s
     assert custom_decay.start_s < default_decay.start_s
     assert custom_decay.end_s < default_decay.end_s
+
+
+@pytest.mark.parametrize("frequency", [1.0, 1.0044, 1.0056])
+def test_log_parabolic_peak_frequency(frequency):
+    time = np.arange(6000) / 20
+    values = 5 + np.sin(2 * np.pi * frequency * time)
+    # A high noise floor keeps the full 300 s span in one segment.
+    report = tag_segments(time, values, "r", "x", SegmentConfig(2))
+    assert len(report.segments) == 1
+    segment = report.segments[0]
+    assert segment.end_s - segment.start_s == pytest.approx(300)
+    assert segment.peak_freq_hz == pytest.approx(frequency, abs=1e-4)
+    assert segment.method_version == 3
+
+
+def test_nyquist_peak_uses_bin_frequency():
+    time = np.arange(6000) / 20
+    values = (-1.0) ** np.arange(len(time))
+    report = tag_segments(time, values, "r", "x", SegmentConfig(2))
+    assert report.segments[0].peak_freq_hz == pytest.approx(10)
