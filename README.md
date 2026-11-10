@@ -119,7 +119,7 @@ The table gives the default rules.
 | `flatline` | Each run of identical values lasts at most 2 s. |
 | `clipping` | Runs at channel limits contain at most 1% of samples. Each counted run has at least three samples. |
 | `spikes` | No curvature-residual score exceeds 8. Each consecutive run above the limit counts as one event. The centered trend window has 7 samples. The centered scale window has 101 samples. |
-| `derivative_pair` | Normalized RMS error between position gradient and velocity is at most 0.05. Pairs require configuration. |
+| `derivative_pair` | The RMS difference between the two-step position change and the Simpson velocity integral, divided by position standard deviation, is at most 0.05. Pairs require configuration. |
 
 The `spikes` check uses the second difference: `d2[i] = x[i-1] - 2*x[i] + x[i+1]`.
 It uses the interior samples, where both neighbours are present.
@@ -132,7 +132,11 @@ Each absolute deviation uses the median at its own sample.
 The scale is also at least the local interquartile range of `d2` divided by 1.349.
 The interquartile range is the 75th percentile minus the 25th percentile over `spike_window` samples.
 This lower limit prevents a zero residual scale on smooth curves.
-All windows are centered and use the available samples at the record ends.
+All windows are centered.
+The first and last `spike_detrend_window // 2` second differences have incomplete trend windows. The check does not score them.
+At each end, the scale uses the value from the nearest complete scale window.
+If the record has fewer second differences than `spike_window`, the scale uses the center value for the full record.
+If no complete trend window exists, the result is `not_testable`.
 The scale is at least `8 * quantum / sqrt(2)`.
 Uniform rounding error has variance `quantum**2 / 12`.
 The second-difference weights give a variance six times as large, or a standard deviation of `quantum / sqrt(2)`.
@@ -152,6 +156,11 @@ Set `resolution_min_fraction` to change this fraction.
 Set `expected_rate_hz` to require `abs(median_step * expected_rate_hz - 1) <= sample_rate_rel_tol`.
 This rate limit does not increase with timestamp resolution.
 The result message gives the expected and measured rates.
+
+The `derivative_pair` check uses `dt = median(diff(time))`.
+For each pair of steps, `d[i] = x[i+2] - x[i]` and `I[i] = dt/3 * (v[i] + 4*v[i+1] + v[i+2])`.
+The value is `RMS(d - I) / std(x)`.
+The result is `not_testable` if `sample_rate` fails, a gap is present, or position is constant.
 
 Checks return `not_testable` when required data are insufficient or invalid.
 Examples include fewer than 10 samples, constant channels for clipping, and invalid time for checks that require increasing time.
@@ -340,7 +349,11 @@ Use `--channels` to select channels or set a larger `spike_z` for these channels
 Rounded or simulated data with repeated extrema can fail the clipping check.
 A slow ramp between plateaus can extend a steady interval and bias its RMS.
 A mean drift during a transition can leave the transition without a tag.
-Numerical differentiation amplifies position noise, so the derivative-pair check needs low noise or a larger tolerance.
+The derivative-pair check needs uniform sampling.
+For an otherwise exact pair, a constant velocity offset `b` adds `2*dt*abs(b)/std(x)` to the score. An offset passes if this score is at most the tolerance.
+The check can miss velocity scale and phase errors when the position change over two steps is small.
+The demo does not configure derivative pairs. Its fixed 0.5 mm position noise makes some small, clean responses exceed the default tolerance.
+The spike check does not score the record ends where the trend window is incomplete.
 
 ## License
 

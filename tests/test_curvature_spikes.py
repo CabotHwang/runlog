@@ -31,3 +31,35 @@ def test_invalid_curvature_window(window):
 
 def test_default_curvature_window():
     assert CheckConfig().spike_detrend_window == 7
+
+
+@pytest.mark.parametrize("index,events", [(None, 0), (10, 1), (-11, 1)])
+def test_smooth_start_and_near_edge_impulse(index, events):
+    time = np.arange(0, 60, 0.05)
+    values = (1 - np.exp(-time)) * np.sin(2 * np.pi * time)
+    if index is not None:
+        values[index] += 10
+    assert spikes(values, "r", "x").value == events
+
+
+@pytest.mark.parametrize("index", [0, 1, -2, -1])
+def test_incomplete_detrend_windows_are_not_scored(index):
+    values = np.sin(np.arange(1000) * 0.13)
+    values[index] += 100
+    assert spikes(values, "r", "x").value == 0
+
+
+def test_detrend_window_longer_than_record():
+    result = spikes(np.arange(10), "r", "x", CheckConfig(spike_detrend_window=11))
+    assert result.status == "not_testable"
+
+
+def test_scale_uses_nearest_complete_window():
+    import pandas as pd
+
+    from runlog.checks import _spike_scale
+
+    series = pd.Series(np.arange(200, dtype=float) ** 2)
+    scale = _spike_scale(series, series, 101)
+    np.testing.assert_array_equal(scale[:50], np.full(50, scale[50]))
+    np.testing.assert_array_equal(scale[-50:], np.full(50, scale[-51]))

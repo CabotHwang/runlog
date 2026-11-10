@@ -79,7 +79,8 @@ def test_channel_checks_pass(check):
     [
         (non_finite, np.r_[np.arange(100), np.nan, np.inf, -np.inf]),
         (clipping, np.clip(np.sin(np.arange(200) * 0.13), -0.5, 0.5)),
-        (spikes, np.r_[np.sin(np.arange(200) * 0.13), 100]),
+        (spikes, np.r_[np.sin(np.arange(100) * 0.13), 100,
+                        np.sin(np.arange(100) * 0.13)]),
     ],
 )
 def test_channel_checks_fail(check, values):
@@ -102,7 +103,7 @@ def test_channel_checks_undefined(check, values):
 def test_zero_mad_with_known_quantum():
     values = np.zeros(200)
     values[10:120:20] = 1
-    values[-1] = 100
+    values[-11] = 100
     result = spikes(values, "r", "x")
     assert result.status == "fail"
     assert result.value == 1
@@ -154,7 +155,7 @@ def test_expected_rate_uses_relative_tolerance_despite_rounding():
     assert "measured 125 Hz" in result.message
 
 
-@pytest.mark.parametrize("index", [0, 500, 999])
+@pytest.mark.parametrize("index", [10, 500, 989])
 def test_isolated_channel_spike_does_not_set_quantum(index):
     values = np.zeros(1000)
     values[index] = 1
@@ -212,7 +213,7 @@ def test_flatline_not_testable(time, values):
 
 
 def test_derivative_pair_pass_and_fail():
-    time = np.arange(1000) * 0.01
+    time = np.arange(1000) * 0.1
     position, velocity = np.sin(time), np.cos(time)
     assert derivative_pair(time, position, velocity, "r", "x").status == "pass"
     result = derivative_pair(time, position, 2 * velocity, "r", "x")
@@ -225,7 +226,7 @@ def test_derivative_pair_pass_and_fail():
     [
         (np.arange(9), np.arange(9), np.arange(9)),
         (np.arange(100)[::-1], np.arange(100), np.arange(100)),
-        (np.arange(100), np.arange(100), np.ones(100)),
+        (np.arange(100), np.ones(100), np.arange(100)),
         (np.arange(100), np.r_[np.arange(99), np.inf], np.arange(100)),
     ],
 )
@@ -299,10 +300,10 @@ def test_spikes_white_noise_false_alarm_rate():
     assert clean >= 19
 
 
-@pytest.mark.parametrize("index", [0, 500, 999])
+@pytest.mark.parametrize("index", [10, 500, 989])
 def test_spikes_detects_twenty_five_sigma_impulse(index):
     values = np.random.default_rng(0).normal(size=1000)
-    # d2 amplifies white-noise SD by sqrt(6); endpoint impulses have unit gain.
+    # d2 amplifies white-noise SD by sqrt(6).
     values[index] = 25.0
     result = spikes(values, "r", "x")
     assert result.status == "fail"

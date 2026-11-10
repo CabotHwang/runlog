@@ -36,8 +36,11 @@ def test_demo_noise_levels_and_repeatability(tmp_path):
     assert np.max(clipped) == limit
 
 
-def test_demo_derivative_pair_needs_larger_noise_tolerance(demo_dataset):
+def test_demo_derivative_pair_on_small_and_large_responses(demo_dataset):
     frame, _ = load_record(demo_dataset, "run_01")
     result = derivative_pair(frame.time, frame.sway, frame.sway_velocity, "run_01", "sway")
     assert result.status == "fail"
     assert result.value > result.threshold
+    frame, _ = load_record(demo_dataset, "run_07")
+    result = derivative_pair(frame.time, frame.sway, frame.sway_velocity, "run_07", "sway")
+    assert result.status == "pass"

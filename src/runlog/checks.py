@@ -234,6 +234,23 @@ def clipping(
     )
 
 
+def _spike_scale(series: pd.Series, residual: pd.Series, window_size: int) -> NDArray:
+    median = residual.rolling(window_size, center=True, min_periods=1).median()
+    mad = (residual - median).abs().rolling(
+        window_size, center=True, min_periods=1
+    ).median().to_numpy()
+    window = series.rolling(window_size, center=True, min_periods=1)
+    curvature_scale = (window.quantile(0.75) - window.quantile(0.25)).to_numpy() / 1.349
+    scale = np.maximum(1.4826 * mad, curvature_scale)
+    half = window_size // 2
+    if len(scale) >= window_size:
+        scale[:half] = scale[half]
+        scale[-half:] = scale[-half - 1]
+    else:
+        scale[:] = scale[len(scale) // 2]
+    return scale
+
+
 def spikes(
     values: ArrayLike, record_id: str, channel: str, config: CheckConfig = CheckConfig()
 ) -> CheckResult:
@@ -241,25 +258,22 @@ def spikes(
     values = np.asarray(values, dtype=float)
     error = _values_error(values)
     value = None
+    if not error and len(values) - 2 < config.spike_detrend_window:
+        error = "fewer second differences than the detrend window"
     if not error:
         # A seven-sample median follows curvature and rejects a three-sample impulse.
-        d2 = np.diff(values, n=2)
-        series = pd.Series(d2)
+        series = pd.Series(np.diff(values, n=2))
         residual = series - series.rolling(
             config.spike_detrend_window, center=True, min_periods=1
         ).median()
-        median = residual.rolling(config.spike_window, center=True, min_periods=1).median()
-        mad = (residual - median).abs().rolling(
-            config.spike_window, center=True, min_periods=1
-        ).median().to_numpy()
         # A curvature IQR floor avoids zero MAD on sparse median residuals.
-        window = series.rolling(config.spike_window, center=True, min_periods=1)
-        curvature_scale = (window.quantile(0.75) - window.quantile(0.25)).to_numpy() / 1.349
-        scale = np.maximum(1.4826 * mad, curvature_scale)
+        scale = _spike_scale(series, residual, config.spike_window)
         quantum = _lattice_quantum(values)
         # Rounding gives d2 SD q/sqrt(2); retain the 8x lattice safety factor.
         scale = np.maximum(scale, 8 * quantum / np.sqrt(2))
-        residual = residual.to_numpy()
+        half = config.spike_detrend_window // 2
+        residual = residual.to_numpy()[half:-half]
+        scale = scale[half:-half]
         if not np.any(scale) and not np.any(residual):
             error = "median absolute deviation is zero"
         else:
@@ -279,7 +293,7 @@ def derivative_pair(
     channel: str,
     config: CheckConfig = CheckConfig(),
 ) -> CheckResult:
-    """Compare position gradients with the paired velocity channel."""
+    """Compare two-step position changes with Simpson velocity integrals."""
     time = np.asarray(time, dtype=float)
     position, velocity = (
         np.asarray(position, dtype=float),
@@ -287,13 +301,20 @@ def derivative_pair(
     )
     error = (
         _time_error(time)
-        or _values_error(position)
-        or _values_error(velocity, constant=True)
+        or _values_error(position, constant=True)
+        or _values_error(velocity)
     )
+    if not error and (
+        sample_rate(time, record_id, config).status != "pass"
+        or gaps(time, record_id, config).status != "pass"
+    ):
+        error = "uniform sampling is required"
     value = None
     if not error:
-        residual = np.gradient(position, time) - velocity
-        value = float(np.sqrt(np.mean(residual**2)) / np.std(velocity))
+        dt = np.median(np.diff(time))
+        integral = dt / 3 * (velocity[:-2] + 4 * velocity[1:-1] + velocity[2:])
+        residual = position[2:] - position[:-2] - integral
+        value = float(np.sqrt(np.mean(residual**2)) / np.std(position))
     return _result(
         record_id,
         "derivative_pair",
