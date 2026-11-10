@@ -68,6 +68,26 @@ def _pair_trials():
     return rows
 
 
+def _harmonic_pair_trials():
+    rate = 160
+    time = np.arange(600 * rate) / rate
+    omega = 2 * np.pi * FREQUENCY
+    position = np.sin(omega * time) + 0.2 * np.sin(4 * omega * time)
+    fundamental = omega * np.cos(omega * time)
+    harmonic = 0.2 * 4 * omega * np.cos(4 * omega * time)
+    rows = []
+    for span in (None, 1 / (16 * FREQUENCY)):
+        config = CheckConfig(derivative_pair_span_s=span)
+        for scale in (1.0, 1.5):
+            result = derivative_pair(time, position, fundamental + scale * harmonic,
+                                     "validation", "x", config)
+            rows.append({"rate_hz": rate, "frequency_hz": FREQUENCY,
+                         "position_harmonic_fraction": 0.2, "harmonic_velocity_scale": scale,
+                         "derivative_pair_span_s": span, "score": result.value,
+                         "status": result.status, "message": result.message})
+    return rows
+
+
 def _steady_row(time, values, config):
     report = tag_segments(time, values, "validation", "x", config)
     segments = [s for s in report.segments if s.tag == "steady"]
@@ -126,7 +146,7 @@ def measure(trials=20, samples=36000):
                                           "derivative_pair_rel_tol": CheckConfig().derivative_pair_rel_tol},
                          "segment_config": {"window_s": 10, "min_steady_s": 30, "transition_low": 0.3, "transition_high": 0.9}},
             "spikes_false_alarms": false_rows, "spikes_detection": hit_rows,
-            "derivative_pair": _pair_trials(), "steady_limit_cycle": limit_rows,
+            "derivative_pair": _pair_trials(), "derivative_pair_harmonic": _harmonic_pair_trials(), "steady_limit_cycle": limit_rows,
             "steady_random_response": random_rows}
 
 
@@ -143,7 +163,7 @@ def _markdown(report):
     protocol = report["protocol"]
     lines = ["# Check characteristics", "", "Run `.venv/bin/python examples/validate_checks.py` from the repository root.",
              f"runlog {report['runlog_version']}; seeds start at {SEED}; {protocol['trials']} spike trials, {protocol['samples']} samples per record.",
-             f"All records use 10 Hz except the pair tests (600 s at each rate). Tagging records last {protocol['duration_s']:g} s.",
+             f"All records use 10 Hz except the pair tests (600 s at each rate; harmonic case at 160 Hz). Tagging records last {protocol['duration_s']:g} s.",
              "The sine has amplitude 0.15 m and frequency 0.2 Hz. Spike trials add Gaussian noise with SD 0.001 m.",
              "Noise-only trials have unit SD. AR(1) starts in its stationary distribution. Student-t has four degrees of freedom.",
              "Each glitch is one positive rectangular pulse. A detection increases the event count over the matched original record.",
@@ -157,6 +177,12 @@ def _markdown(report):
     lines += _table(["Width (samples)", "10 SD", "20 SD", "50 SD", "200 SD"], [(w, *[hits[w, h] for h in (10, 20, 50, 200)]) for w in (1, 2, 3, 5)])
     lines += ["## Derivative pairs", ""]
     lines += _table(["Rate (Hz)", "Case", "Score", "Status", "Span"], [(r["rate_hz"], r["case"], _number(r["score"], 6), r["status"], r["message"]) for r in report["derivative_pair"]])
+    lines += ["## Harmonic pair scope", "",
+              "Position is sin(2*pi*0.2*t) + 0.2*sin(2*pi*0.8*t). Only the 0.8 Hz velocity component is scaled.",
+              "The automatic span contains one full harmonic period. Its velocity error has zero integral over that span.",
+              "Set derivative_pair_span_s to 0.3125 s, one quarter of the harmonic period, to detect this error.", ""]
+    lines += _table(["Harmonic velocity scale", "Override (s)", "Score", "Status", "Span"],
+                    [(r["harmonic_velocity_scale"], r["derivative_pair_span_s"], f"{r['score']:.10g}", r["status"], r["message"]) for r in report["derivative_pair_harmonic"]])
     lines += ["## Steady limit cycle", "", "True signal RMS is 0.106066 m. Noise floor is three times noise SD; rel_tol is 0.05.", ""]
     lines += _table(["Noise / amplitude", "Steady time (s)", "Segments", "RMS (m)", "Bias (%)"], [(f"{r['noise_amplitude_fraction']:.0%}", _number(r["steady_time_s"], 1), r["segment_count"], _number(r["steady_rms_m"], 6), _number(r["rms_bias_pct"], 2)) for r in report["steady_limit_cycle"]])
     lines += ["## Steady random response", "", "Noise floor is 0.003 m.", ""]

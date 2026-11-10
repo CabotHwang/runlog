@@ -17,7 +17,7 @@ def test_export_rows_schema_and_source_unchanged(demo_dataset, tmp_path):
     before = (demo_dataset / "catalog.sqlite").read_bytes()
     url = f"sqlite:///{tmp_path / 'target.sqlite'}"
     counts = export_catalog(demo_dataset, url)
-    assert counts == {"records": 16, "attrs": 48, "channels": 64, "checks": 320, "segments": 81}
+    assert counts == {"records": 16, "attrs": 48, "channels": 64, "checks": 320, "segments": 76}
     engine = create_engine(url)
     with engine.connect() as connection:
         inspector = inspect(connection)

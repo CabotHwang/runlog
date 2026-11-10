@@ -94,7 +94,7 @@ def test_export_cli_environment_and_replace(demo_dataset, tmp_path, monkeypatch,
     monkeypatch.setenv("RUNLOG_DB_URL", first)
     assert main(base) == 0
     output = capsys.readouterr().out
-    assert all(value in output for value in ("records", "checks", "segments", "16", "320", "81"))
+    assert all(value in output for value in ("records", "checks", "segments", "16", "320", "76"))
     assert main(base) == 2
     assert "exist" in capsys.readouterr().err
     assert main([*base, "--replace"]) == 0
@@ -172,7 +172,7 @@ def test_tag_keeps_other_channels_and_skips_missing(tmp_path, make_test_record):
     assert data["channels"]["x"] == first
     assert data["channels"]["y"]["status"] == "ok"
     missing = json.loads((tmp_path / "segments/a.json").read_text(encoding="utf-8"))
-    assert missing["channels"]["y"] == {"status": "not_testable", "segments": [],
+    assert missing["channels"]["y"] == {"status": "not_testable", "segments": [], "message": "",
         "runlog_version": __version__, "config": asdict(SegmentConfig(0.1))}
     assert main([*base, "x"]) == 0
     build_catalog(tmp_path)

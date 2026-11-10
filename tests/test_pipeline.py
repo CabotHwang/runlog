@@ -102,3 +102,40 @@ def test_tag_rejects_stale_sidecar(dataset):
     with pytest.raises(ValueError, match="hash mismatch"):
         tag_dataset(dataset, "y", SegmentConfig(0.1))
     assert path.read_bytes() == before
+
+
+def test_gap_record_pipeline_and_cli(dataset, capsys):
+    frame, _ = load_record(dataset, "b")
+    frame.loc[len(frame) // 2:, "time"] += 2
+    write_record(frame, dataset, "gap", {"x": "m"}, "gap.csv")
+    config = SegmentConfig(0.1)
+    reports = tag_dataset(dataset, "x", config)
+    assert reports["a"].status == reports["b"].status == "ok"
+    gap = reports["gap"]
+    assert gap.status == "not_testable" and gap.segments == ()
+    assert "gap" in gap.message
+    path = dataset / "segments/gap.json"
+    assert read_json(path)["channels"]["x"]["message"] == gap.message
+    before = path.read_bytes()
+    assert main(["tag", "--dataset", str(dataset), "--channel", "x", "--noise-floor", "0.1"]) == 0
+    assert capsys.readouterr().out == "Records tagged: 3.\n"
+    assert path.read_bytes() == before
+    assert verify_dataset(dataset) == []
+    build_catalog(dataset)
+    assert query(dataset, "SELECT * FROM segments WHERE record_id='gap'") == []
+
+
+def test_segment_sidecar_message_compatibility(dataset):
+    tag_dataset(dataset, "x", SegmentConfig(0.1))
+    path = dataset / "segments/a.json"
+    data = read_json(path)
+    del data["channels"]["x"]["message"]
+    path.write_text(json.dumps(data))
+    assert verify_dataset(dataset) == []
+    build_catalog(dataset)
+    tag_dataset(dataset, "y", SegmentConfig(0.1))
+    data = read_json(path)
+    data["channels"]["x"]["message"] = 42
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="message must be a string"):
+        build_catalog(dataset)

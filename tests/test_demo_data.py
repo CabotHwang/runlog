@@ -44,3 +44,15 @@ def test_demo_derivative_pair_on_small_and_large_responses(demo_dataset):
     frame, _ = load_record(demo_dataset, "run_07")
     result = derivative_pair(frame.time, frame.sway, frame.sway_velocity, "run_07", "sway")
     assert result.status == "pass"
+
+
+def test_demo_gap_has_no_tags(demo_dataset):
+    import json
+
+    from runlog import query
+
+    report = json.loads((demo_dataset / "segments/run_03.json").read_text())["channels"]["sway"]
+    assert report["status"] == "not_testable"
+    assert report["segments"] == []
+    assert "gap" in report["message"]
+    assert query(demo_dataset, "SELECT * FROM segments WHERE record_id='run_03'") == []

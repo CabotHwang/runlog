@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "runlog_version": "0.2.2",
+  "runlog_version": "0.2.3",
   "protocol": {"seed_start": 20261110, "trials": 20, "samples": 36000, "rate_hz": 10, "duration_s": 3600.0, "sine_amplitude_m": 0.15, "sine_frequency_hz": 0.2, "sine_noise_sd_m": 0.001, "pair_duration_s": 600, "position_noise_sd": "1% of sine amplitude", "noise_distributions": "unit SD; stationary AR(1) initial value; Student-t divided by sqrt(2)", "glitch": "one positive rectangular pulse per record at a seeded interior sample", "detection": "event count exceeds matched unmodified record", "steady_rms": "duration-weighted quadratic mean of segment RMS; null when no steady segment", "random_response": "FFT mask 0.18-0.22 Hz; scaled to 0.15/sqrt(2) m SD", "check_config": {"spike_z": 8.0, "spike_window": 101, "spike_detrend_window": 7, "derivative_pair_rel_tol": 0.05}, "segment_config": {"window_s": 10, "min_steady_s": 30, "transition_low": 0.3, "transition_high": 0.9}},
   "spikes_false_alarms": [
     {"signal": "gaussian", "failed": 0, "trials": 20},
@@ -44,6 +44,12 @@
     {"rate_hz": 100, "case": "velocity_scale_5%", "score": 0.07110627395857992, "status": "fail", "message": "span 126 steps (1.26 s)"},
     {"rate_hz": 100, "case": "velocity_scale_10%", "score": 0.1422125477214321, "status": "fail", "message": "span 126 steps (1.26 s)"},
     {"rate_hz": 100, "case": "position_noise_1pct", "score": 0.019981109518201704, "status": "pass", "message": "span 126 steps (1.26 s)"}
+  ],
+  "derivative_pair_harmonic": [
+    {"rate_hz": 160, "frequency_hz": 0.2, "position_harmonic_fraction": 0.2, "harmonic_velocity_scale": 1.0, "derivative_pair_span_s": null, "score": 2.961097580746762e-11, "status": "pass", "message": "span 200 steps (1.25 s)"},
+    {"rate_hz": 160, "frequency_hz": 0.2, "position_harmonic_fraction": 0.2, "harmonic_velocity_scale": 1.5, "derivative_pair_span_s": null, "score": 2.961120426581684e-11, "status": "pass", "message": "span 200 steps (1.25 s)"},
+    {"rate_hz": 160, "frequency_hz": 0.2, "position_harmonic_fraction": 0.2, "harmonic_velocity_scale": 1.0, "derivative_pair_span_s": 0.3125, "score": 1.5009175385146767e-09, "status": "pass", "message": "span 50 steps (0.3125 s)"},
+    {"rate_hz": 160, "frequency_hz": 0.2, "position_harmonic_fraction": 0.2, "harmonic_velocity_scale": 1.5, "derivative_pair_span_s": 0.3125, "score": 0.1386520545513978, "status": "fail", "message": "span 50 steps (0.3125 s)"}
   ],
   "steady_limit_cycle": [
     {"status": "ok", "steady_time_s": 3600.0, "segment_count": 1, "segment_rms_m": [0.10605943303751428], "steady_rms_m": 0.10605943303751428, "noise_amplitude_fraction": 0.01, "noise_floor_m": 0.0045000000000000005, "true_rms_m": 0.10606601717798211, "rel_tol": 0.05, "rms_bias_pct": -0.006207587164119843},

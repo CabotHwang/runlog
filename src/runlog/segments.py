@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike, NDArray
 
+from .checks import gaps, sample_rate
+
 
 @dataclass(frozen=True)
 class SegmentConfig:
@@ -44,6 +46,7 @@ class Segment:
 class SegmentReport:
     status: str
     segments: tuple[Segment, ...]
+    message: str = ""
 
 
 def _runs(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
@@ -172,9 +175,16 @@ def tag_segments(
             "time and values must be one-dimensional arrays of equal length"
         )
     if len(time) < 2 or not np.isfinite(time).all() or not np.isfinite(values).all():
-        return SegmentReport("not_testable", ())
-    if np.any(np.diff(time) <= 0) or time[-1] - time[0] < 2 * config.window_s:
-        return SegmentReport("not_testable", ())
+        return SegmentReport("not_testable", (), "fewer than 2 samples or non-finite data")
+    if np.any(np.diff(time) <= 0):
+        return SegmentReport("not_testable", (), "time is not strictly increasing")
+    if time[-1] - time[0] < 2 * config.window_s:
+        return SegmentReport("not_testable", (), "record is shorter than twice the envelope window")
+    if gaps(time, record_id).status == "fail":
+        return SegmentReport("not_testable", (), "time has a gap above 3 times the median step")
+    spacing = sample_rate(time, record_id)
+    if spacing.status != "pass":
+        return SegmentReport("not_testable", (), f"non-uniform sample spacing (sample_rate): {spacing.message}")
     dt = float(np.median(np.diff(time)))
     window = min(len(time), max(1, round(config.window_s / dt)))
     envelope = _rolling_std(values, window)

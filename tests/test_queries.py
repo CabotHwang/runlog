@@ -74,8 +74,10 @@ def test_demo_failure_rates(demo_dataset):
 
 def test_demo_longest_and_rank(demo_dataset):
     rows = query(demo_dataset, QUERIES["longest_steady_segment"])
-    assert len(rows) == 16
-    for i, row in enumerate(rows):
+    assert len(rows) == 15
+    assert "run_03" not in {row["record_id"] for row in rows}
+    for row in rows:
+        i = int(row["record_id"][-2:]) - 1
         assert row["record_id"] == f"run_{i + 1:02d}" and row["channel"] == "sway"
         assert row["start_s"] == pytest.approx(STARTS[i])
         assert row["end_s"] == pytest.approx(ENDS[i])
@@ -93,16 +95,16 @@ def test_demo_longest_and_rank(demo_dataset):
 def test_demo_coverage_and_shares(demo_dataset):
     rows = query(demo_dataset, QUERIES["steady_coverage"])
     assert [r["record_id"] for r in rows] == [
-        f"run_{i:02d}" for i in range(1, 17) if i != 9
+        f"run_{i:02d}" for i in range(1, 17) if i not in (3, 9)
     ]
     for row in rows:
         i = int(row["record_id"][-2:]) - 1
-        duration = 301.9 if i == 2 else 299.9
+        duration = 299.9
         assert row["channel"] == "sway"
         assert row["steady_s"] == pytest.approx(ENDS[i] - STARTS[i])
         assert row["steady_share"] == pytest.approx((ENDS[i] - STARTS[i]) / duration)
     rows = query(demo_dataset, QUERIES["segment_tag_shares"])
-    totals = {"buildup": 407.6, "decay": 407.1, "quiet": 1068.2, "steady": 2615.2}
+    totals = {"buildup": 382.1, "decay": 381.7, "quiet": 1000.8, "steady": 2445.4}
     assert [row["tag"] for row in rows] == list(totals)
     for row in rows:
         assert row["channel"] == "sway" and row["total_s"] == pytest.approx(

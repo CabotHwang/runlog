@@ -1,8 +1,8 @@
 # Check characteristics
 
 Run `.venv/bin/python examples/validate_checks.py` from the repository root.
-runlog 0.2.2; seeds start at 20261110; 20 spike trials, 36000 samples per record.
-All records use 10 Hz except the pair tests (600 s at each rate). Tagging records last 3600 s.
+runlog 0.2.3; seeds start at 20261110; 20 spike trials, 36000 samples per record.
+All records use 10 Hz except the pair tests (600 s at each rate; harmonic case at 160 Hz). Tagging records last 3600 s.
 The sine has amplitude 0.15 m and frequency 0.2 Hz. Spike trials add Gaussian noise with SD 0.001 m.
 Noise-only trials have unit SD. AR(1) starts in its stationary distribution. Student-t has four degrees of freedom.
 Each glitch is one positive rectangular pulse. A detection increases the event count over the matched original record.
@@ -52,6 +52,19 @@ Heights are multiples of noise SD. Cells give detections / trials.
 | 100 | velocity_scale_5% | 0.071106 | fail | span 126 steps (1.26 s) |
 | 100 | velocity_scale_10% | 0.142213 | fail | span 126 steps (1.26 s) |
 | 100 | position_noise_1pct | 0.019981 | pass | span 126 steps (1.26 s) |
+
+## Harmonic pair scope
+
+Position is sin(2*pi*0.2*t) + 0.2*sin(2*pi*0.8*t). Only the 0.8 Hz velocity component is scaled.
+The automatic span contains one full harmonic period. Its velocity error has zero integral over that span.
+Set derivative_pair_span_s to 0.3125 s, one quarter of the harmonic period, to detect this error.
+
+| Harmonic velocity scale | Override (s) | Score | Status | Span |
+|---|---|---|---|---|
+| 1.0 | None | 2.961097581e-11 | pass | span 200 steps (1.25 s) |
+| 1.5 | None | 2.961120427e-11 | pass | span 200 steps (1.25 s) |
+| 1.0 | 0.3125 | 1.500917539e-09 | pass | span 50 steps (0.3125 s) |
+| 1.5 | 0.3125 | 0.1386520546 | fail | span 50 steps (0.3125 s) |
 
 ## Steady limit cycle
 

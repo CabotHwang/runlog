@@ -132,3 +132,23 @@ def test_automatic_span_rejects_short_record():
     result = derivative_pair(time, np.sin(2 * np.pi * 0.2 * time),
                              2 * np.pi * 0.2 * np.cos(2 * np.pi * 0.2 * time), "r", "x")
     assert result.status == "not_testable"
+
+
+def test_fourth_harmonic_blind_span():
+    time = np.arange(600 * 160) / 160
+    omega = 2 * np.pi * 0.2
+    position = np.sin(omega * time) + 0.2 * np.sin(4 * omega * time)
+    fundamental = omega * np.cos(omega * time)
+    harmonic = 0.2 * 4 * omega * np.cos(4 * omega * time)
+    for span in (None, 1 / (16 * 0.2)):
+        config = CheckConfig(derivative_pair_span_s=span)
+        exact = derivative_pair(time, position, fundamental + harmonic, "r", "x", config)
+        assert exact.status == "pass" and exact.value < 1e-6
+        faulty = derivative_pair(time, position, fundamental + 1.5 * harmonic, "r", "x", config)
+        if span is None:
+            assert faulty.status == "pass" and faulty.value < 1e-6
+            assert "span 200 steps (1.25 s)" in faulty.message
+        else:
+            assert faulty.status == "fail"
+            assert faulty.value == pytest.approx(np.sqrt(2) * 0.1 / np.sqrt(1.04), rel=0.001)
+            assert "span 50 steps (0.3125 s)" in faulty.message

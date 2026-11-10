@@ -246,3 +246,22 @@ def test_nyquist_peak_uses_bin_frequency():
     values = (-1.0) ** np.arange(len(time))
     report = tag_segments(time, values, "r", "x", SegmentConfig(2))
     assert report.segments[0].peak_freq_hz == pytest.approx(10)
+
+
+@pytest.mark.parametrize("jump,reason", [(2.0, "gap"), (0.025, "sample_rate")])
+def test_invalid_time_spacing_has_no_tags(jump, reason):
+    time, values = analytic_signal()
+    time[len(time) // 2:] += jump
+    report = tag_segments(time, values, "r", "sway", SegmentConfig(0.05))
+    assert report.status == "not_testable"
+    assert report.segments == ()
+    assert reason in report.message
+
+
+def test_millisecond_rounded_uniform_time_has_tags():
+    time = np.round(np.arange(9000) / 30, 3)
+    values = np.sin(2 * np.pi * time)
+    report = tag_segments(time, values, "r", "sway", SegmentConfig(0.05))
+    assert report.status == "ok"
+    assert report.message == ""
+    assert any(s.tag == "steady" for s in report.segments)

@@ -1,4 +1,4 @@
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 from .catalog import build_catalog, query
 from .checks import (

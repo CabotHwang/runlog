@@ -30,6 +30,7 @@ def test_reduced_validation_report(tmp_path, monkeypatch, capsys):
         expected = "fail" if row["case"] in ("velocity_scale_5%", "velocity_scale_10%") else "pass"
         assert row["status"] == expected
         assert "span" in row["message"]
+    assert len(report["derivative_pair_harmonic"]) == 4
     assert len(report["steady_limit_cycle"]) == 4
     assert len(report["steady_random_response"]) == 3
     for row in report["steady_limit_cycle"] + report["steady_random_response"]:
@@ -49,3 +50,12 @@ def test_invalid_validation_size(trials, samples):
     measure = runpy.run_path("examples/validate_checks.py")["measure"]
     with pytest.raises(ValueError, match="one trial and 1000 samples"):
         measure(trials, samples)
+
+
+def test_harmonic_validation_both_spans():
+    rows = runpy.run_path("examples/validate_checks.py")["_harmonic_pair_trials"]()
+    assert len(rows) == 4
+    assert [r["status"] for r in rows] == ["pass", "pass", "pass", "fail"]
+    assert [r["derivative_pair_span_s"] for r in rows] == [None, None, 0.3125, 0.3125]
+    assert all(r["score"] < 1e-6 for r in rows[:3])
+    assert rows[3]["score"] == pytest.approx(0.13865, abs=1e-5)

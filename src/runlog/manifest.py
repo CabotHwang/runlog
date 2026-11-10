@@ -53,6 +53,8 @@ def read_analysis(path: Path, record_sha256: str) -> dict:
                 _validate_provenance(report, SegmentConfig)
                 if report["status"] not in ("ok", "not_testable") or not isinstance(report["segments"], list):
                     raise ValueError("invalid channel report")
+                if not isinstance(report.get("message", ""), str):
+                    raise ValueError("segment message must be a string")
                 for row in report["segments"]:
                     segment = Segment(**row)
                     if segment.record_id != path.stem or segment.channel != channel:

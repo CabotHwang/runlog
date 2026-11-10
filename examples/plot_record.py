@@ -45,6 +45,9 @@ def _plot_response(axis, dataset: Path, clean: list[dict]) -> None:
     for run, marker, color in zip(faulty, markers, colors):
         segments = query(dataset, "SELECT rms FROM segments WHERE record_id=? "
                          "AND channel='sway' AND tag='steady' ORDER BY start_s", (run["record_id"],))
+        if not segments:
+            axis.plot([], [], linestyle="none", label=f"{run['record_id']}: {run['check_name']} (no steady tags)")
+            continue
         axis.scatter([run["vr"]] * len(segments), [row["rms"] for row in segments],
                      marker=marker, color=color, s=65, zorder=3,
                      label=f"{run['record_id']}: {run['check_name']}")

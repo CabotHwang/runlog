@@ -26,6 +26,7 @@ Run the example pipeline from the repository root. The second command redraws `d
 The script creates 16 synthetic records with a fixed random seed.
 Five records contain one fault each: a gap, a frozen sensor, spikes, clipping, and NaN values.
 These records fail seven checks. One fault can cause more than one failed check.
+The gap record has no segment tags. The dataset has 76 segments in total.
 The frozen sensor fails flatline while held and spikes at release.
 Each channel includes seeded Gaussian sensor noise. Sway noise has a standard deviation of 0.5 mm.
 The other channels have noise at 1% of their typical amplitude.
@@ -75,7 +76,8 @@ Each record sidecar contains channel units, scalar attributes, sample count, sou
 The `source` field stores only the file name, not the path.
 The check sidecar stores `record_sha256`, `runlog_version`, `config`, and a `checks` list.
 The segment sidecar stores `record_sha256` and a `channels` object.
-Each channel entry contains `status`, `segments`, `runlog_version`, and `config`.
+Each channel entry contains `status`, `message`, `segments`, `runlog_version`, and `config`.
+The message gives the reason when tagging is not possible. Older sidecars without this field remain readable.
 Each `config` object stores all fields of the configuration used for that analysis.
 Tagging updates only the selected channel.
 A missing channel gives `not_testable` and an empty segment list.
@@ -218,6 +220,8 @@ Log-parabolic interpolation uses the peak bin and its two neighbours.
 A peak at the spectrum end uses the bin frequency.
 Constant segments and segments shorter than the envelope window have no peak frequency.
 Records shorter than twice that window give `not_testable`.
+Tagging also gives `not_testable` with no segments for non-finite data, time that does not increase, gaps, or non-uniform spacing.
+It uses the default `gaps` and `sample_rate` rules, including the timestamp-resolution allowance.
 
 ## Catalog
 
@@ -355,8 +359,8 @@ The random response gives 0.0, 1553.1, and 3408.1 s of steady tags out of 3600 s
 ## Limits
 
 Ingest preserves time errors for later checks.
-Segment tagging assumes uniform sample spacing and uses the median time step.
-Check the time results before you use segment tags.
+Segment tagging requires uniform sample spacing and uses the median time step.
+The demo gap record (`run_03`) has no tags.
 A passed check does not establish physical validity.
 A channel that holds a constant value for part of a record, such as the speed of a stopped carriage, can fail the flatline and clipping checks with the default thresholds. A fully constant channel fails flatline and gives `not_testable` for clipping.
 Use `--config` to set thresholds for your data. One configuration applies to all selected channels in a `check` run.
@@ -376,6 +380,8 @@ A mean drift during a transition can leave the transition without a tag.
 The derivative-pair check needs uniform sampling.
 For an otherwise exact pair, a constant velocity offset `b` gives score `m*dt*abs(b)/std(x)`. An offset passes if this score is at most the tolerance.
 A sine with a quarter-period span gives a velocity scale-error score of about `sqrt(2)*abs(error)`, subject to even-step rounding and integration error.
+A velocity error in a harmonic can pass if the span contains an integer number of its periods: its integral over that span is zero.
+Set `derivative_pair_span_s` to one quarter of that harmonic period to test this case.
 Multiple frequency peaks, drift, or noise can change the selected span. Set `derivative_pair_span_s` when the dominant period is unsuitable.
 The demo does not configure derivative pairs. Its fixed 0.5 mm position noise makes some small, clean responses exceed the default tolerance.
 The spike check does not score the record ends where the trend window is incomplete.
