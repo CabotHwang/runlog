@@ -163,13 +163,11 @@ def test_isolated_channel_spike_does_not_set_quantum(index):
     assert result.value == 1
 
 
-@pytest.mark.parametrize("count,expected", [(24, 24), (25, 0)])
-def test_channel_quantum_requires_fraction_of_all_steps(count, expected):
+@pytest.mark.parametrize("count", [1, 24, 25])
+def test_two_value_channel_does_not_establish_a_lattice(count):
     values = np.zeros(1001)
     values[10 : 10 + 20 * count : 20] = 1
-    assert spikes(values, "r", "x").value == expected
-    config = CheckConfig(resolution_min_fraction=0.06)
-    assert spikes(values, "r", "x", config).value == count
+    assert spikes(values, "r", "x").value == count
 
 
 @pytest.mark.parametrize("noise_lsb", [0.3, 0.5, 1.0])

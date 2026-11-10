@@ -56,13 +56,20 @@ def test_bad_csv(tmp_path, content, time_column):
 
 @pytest.mark.parametrize("content", [
     "no header", "Time X", "Time X\n(s)\n", "Time X X\n(s) (m) (m)\n",
-    "Time X\ns m\n", "Time X\n(s) (m)\n0 bad\n", "Time X\n(s) (m)\n0 1 2\n",
+    "Time X\n(s) (m)\n0 bad\n", "Time X\n(s) (m)\n0 1 2\n",
 ])
 def test_bad_openfast(tmp_path, content):
     path = tmp_path / "bad.out"
     path.write_text(content)
     with pytest.raises(ValueError):
         read_openfast_out(path)
+
+
+@pytest.mark.parametrize("unit,expected", [("m", "m"), ("(m)", "m"), ("()", "-")])
+def test_text_openfast_unit_forms(tmp_path, unit, expected):
+    path = tmp_path / "units.out"
+    path.write_text(f"Time X\ns {unit}\n0 1\n1 2\n")
+    assert read_openfast_out(path)[1] == {"X": expected}
 
 
 def test_write_validation_before_output(tmp_path):

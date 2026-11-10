@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike, NDArray
 
+from .check_resolution import _lattice_quantum, _step_resolution
+
 
 @dataclass(frozen=True)
 class CheckConfig:
@@ -20,8 +22,11 @@ class CheckConfig:
     derivative_pairs: tuple[tuple[str, str], ...] = ()
     resolution_min_fraction: float = 0.05
     expected_rate_hz: float | None = None
+    channels: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
+        if self.channels is not None:
+            object.__setattr__(self, "channels", tuple(self.channels))
         if (
             type(self.spike_window) is not int
             or self.spike_window < 3
@@ -95,19 +100,6 @@ def time_monotonic(
         )
     value = None if error else float(violations)
     return _result(record_id, "time_monotonic", None, value, 0.0, error)
-
-
-def _step_resolution(
-    deviation: NDArray[np.float64], roundoff: float, min_fraction: float
-) -> float:
-    nonzero = np.sort(deviation[deviation > roundoff])
-    if not len(nonzero):
-        return 0.0
-    # Group equal magnitudes within the supplied subtraction roundoff.
-    starts = np.r_[0, np.flatnonzero(np.diff(nonzero) > roundoff) + 1]
-    counts = np.diff(np.r_[starts, len(nonzero)])
-    repeated = nonzero[starts[counts >= min_fraction * len(deviation)]]
-    return float(repeated[0]) if len(repeated) else 0.0
 
 
 def sample_rate(
@@ -260,9 +252,11 @@ def spikes(
             config.spike_window, center=True, min_periods=1
         ).median().to_numpy()
         scale = 1.4826 * mad
-        steps = np.abs(np.diff(values))
-        quantum = _step_resolution(steps, 0.0, config.resolution_min_fraction)
-        scale = np.maximum(scale, np.sqrt(6) * 1.4826 * quantum)
+        quantum = _lattice_quantum(values)
+        # Uniform rounding error has variance q**2/12; d2 weights (1,-2,1)
+        # give variance 6*q**2/12 and SD q/sqrt(2). Use an 8x safety factor
+        # for smooth curvature where quantisation collapses the local MAD.
+        scale = np.maximum(scale, 8 * quantum / np.sqrt(2))
         if not np.any(scale) and not np.any(d2):
             error = "median absolute deviation is zero"
         else:
@@ -306,6 +300,29 @@ def derivative_pair(
     )
 
 
+def _channel_checks(
+    frame: pd.DataFrame,
+    time: NDArray[np.float64],
+    record_id: str,
+    channel: str,
+    config: CheckConfig,
+) -> list[CheckResult]:
+    checks = ("non_finite", "flatline", "clipping", "spikes")
+    if channel not in frame or channel == "time":
+        return [
+            CheckResult(record_id, name, channel, "not_testable", None, None,
+                        "channel is missing")
+            for name in checks
+        ]
+    values = frame[channel].to_numpy(dtype=float)
+    return [
+        non_finite(values, record_id, channel, config),
+        flatline(time, values, record_id, channel, config),
+        clipping(values, record_id, channel, config),
+        spikes(values, record_id, channel, config),
+    ]
+
+
 def run_checks(
     frame: pd.DataFrame, record_id: str, config: CheckConfig = CheckConfig()
 ) -> list[CheckResult]:
@@ -317,16 +334,12 @@ def run_checks(
         check(time, record_id, config)
         for check in (time_monotonic, sample_rate, gaps, duration)
     ]
-    for channel in frame.columns:
-        if channel == "time":
-            continue
-        values = frame[channel].to_numpy(dtype=float)
-        results.append(non_finite(values, record_id, channel, config))
-        results.append(flatline(time, values, record_id, channel, config))
-        results.extend(
-            check(values, record_id, channel, config) for check in (clipping, spikes)
-        )
+    channels = frame.columns.drop("time") if config.channels is None else config.channels
+    for channel in channels:
+        results.extend(_channel_checks(frame, time, record_id, channel, config))
     for position, velocity in config.derivative_pairs:
+        if config.channels is not None and not {position, velocity}.issubset(channels):
+            continue
         if position not in frame or velocity not in frame:
             results.append(
                 _result(

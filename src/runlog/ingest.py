@@ -7,6 +7,12 @@ from .manifest import sha256_file
 from .schema import Channel, RecordMeta, validate_record_id
 
 
+def _unit(value: str) -> str:
+    if value.startswith("(") and value.endswith(")"):
+        value = value[1:-1].strip()
+    return value or "-"
+
+
 def _normalize_time(frame: pd.DataFrame, time_column: str) -> pd.DataFrame:
     if time_column not in frame:
         raise ValueError(f"missing time column: {time_column}")
@@ -37,8 +43,6 @@ def read_openfast_out(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
     units = lines[header + 1].split()
     if len(names) != len(set(names)) or len(units) != len(names):
         raise ValueError("invalid OpenFAST header: channel names must be unique and match the units row")
-    if any(not unit.startswith("(") or not unit.endswith(")") for unit in units):
-        raise ValueError("invalid OpenFAST units: expected parentheses")
     try:
         rows = [[float(value) for value in line.split()]
                 for line in lines[header + 2:] if line.strip()]
@@ -47,7 +51,7 @@ def read_openfast_out(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
         frame = pd.DataFrame(rows, columns=names, dtype=np.float64)
     except ValueError as exc:
         raise ValueError("invalid OpenFAST numeric rows") from exc
-    return _normalize_time(frame, "Time"), dict(zip(names[1:], (unit[1:-1] for unit in units[1:])))
+    return _normalize_time(frame, "Time"), dict(zip(names[1:], map(_unit, units[1:])))
 
 
 def _read_binary(stream, count: int, dtype: str) -> np.ndarray:
@@ -69,9 +73,7 @@ def _binary_labels(stream, channels: int, width: int) -> tuple[list[str], dict[s
              _read_binary(stream, channels + 1, f"S{width}")]
     if names[0] != "Time" or len(names) != len(set(names)) or "time" in names:
         raise ValueError("invalid OpenFAST binary channel names")
-    if any(not unit.startswith("(") or not unit.endswith(")") for unit in units):
-        raise ValueError("invalid OpenFAST binary units: expected parentheses")
-    return names, dict(zip(names[1:], (unit[1:-1] for unit in units[1:])))
+    return names, dict(zip(names[1:], map(_unit, units[1:])))
 
 
 def read_openfast_outb(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:

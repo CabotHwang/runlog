@@ -129,9 +129,14 @@ First, `m[i]` is the rolling median of `d2`.
 Then, the scale is `1.4826 * rolling_median(abs(d2 - m))`.
 Each absolute deviation uses the median at its own sample.
 Both windows use `spike_window` samples and use the available samples at the record ends.
-The scale is at least `sqrt(6) * 1.4826` times the channel quantum.
-The factor `sqrt(6)` accounts for the noise gain of the second difference.
-The quantum is the smallest nonzero absolute channel step that occurs in at least `resolution_min_fraction` of all channel steps (5% by default).
+The scale is at least `8 * quantum / sqrt(2)`.
+Uniform rounding error has variance `quantum**2 / 12`.
+The second-difference weights give a variance six times as large, or a standard deviation of `quantum / sqrt(2)`.
+The safety factor is 8 to allow smooth curvature when rounding gives a small local scale.
+The quantum comes from the spacing of sorted unique channel values, with a tolerance for float32 rounding.
+At least three distinct values must fit the same spacing or its integer multiples.
+The estimate tests up to 32 subdivisions of the smallest observed spacing.
+A channel with only two distinct values gives no quantum.
 Each consecutive run of scores above `spike_z` counts as one event.
 The check value is the number of events.
 A zero scale gives a zero score for a zero second difference and an infinite score for a nonzero second difference.
@@ -152,6 +157,7 @@ Zero or one sample fails duration.
 Non-finite values prevent other channel checks.
 
 Use `check --config checks.json` to set `CheckConfig` fields.
+Use `channels` in `--config` or `--channels a,b,c` to select channels; CLI values take priority, and time checks still run.
 Use `tag --config segments.json` to set `SegmentConfig` fields.
 The required `--noise-floor` value overrides any `noise_floor` in the config file.
 
@@ -294,7 +300,8 @@ Segment tagging assumes uniform sample spacing and uses the median time step.
 Check the time results before you use segment tags.
 A passed check does not establish physical validity.
 A channel that holds a constant value for part of a record, such as the speed of a stopped carriage, can fail the flatline and clipping checks with the default thresholds. A fully constant channel fails flatline and gives `not_testable` for clipping.
-Use `--config` to set thresholds for your data. One configuration applies to all channels in a `check` run.
+Use `--config` to set thresholds for your data. One configuration applies to all selected channels in a `check` run.
+A channel that is constant by design fails flatline unless it is left out of the channel selection.
 A step change counts as a spike event.
 Spike sensitivity falls when the sampling rate is low compared with the signal frequency.
 For a signal with little noise, a spike window shorter than one cycle can report smooth oscillation as spikes.

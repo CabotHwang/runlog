@@ -32,6 +32,7 @@ def _parser() -> argparse.ArgumentParser:
     ingest.add_argument("--overwrite", action="store_true", help="Replace existing records.")
     check = commands.add_parser("check", help="Check record quality.")
     check.add_argument("--config", type=Path, help="JSON file with CheckConfig fields.")
+    check.add_argument("--channels", help="Comma-separated channel names; overrides the config file.")
     tag = commands.add_parser("tag", help="Tag signal intervals.")
     tag.add_argument("--channel", required=True, help="Channel to tag.")
     tag.add_argument("--noise-floor", required=True, type=float, help="Positive noise floor in channel units; overrides the config file.")
@@ -80,7 +81,7 @@ def _export_catalog(args: argparse.Namespace) -> None:
     _print_rows([export_catalog(args.dataset, url, args.replace)], "table")
 
 
-def _ingest(args: argparse.Namespace) -> int:
+def _ingest_inputs(args: argparse.Namespace) -> tuple[list[str], dict, dict]:
     ids = [Path(name).resolve().parent.name if args.id_from == "parent" else Path(name).stem
            for name in args.files]
     if len(ids) != len(set(ids)):
@@ -88,15 +89,25 @@ def _ingest(args: argparse.Namespace) -> int:
     if args.units is None and any(Path(name).suffix.lower() not in (".out", ".outb") for name in args.files):
         raise ValueError("--units is required for CSV inputs")
     units, attrs = _json(args.units), _json(args.attrs)
-    for name, record_id in zip(args.files, ids):
-        path = Path(name)
-        readers = {".out": read_openfast_out, ".outb": read_openfast_outb}
-        if path.suffix.lower() in readers:
-            frame, file_units = readers[path.suffix.lower()](path)
-        else:
-            frame, file_units = read_csv(path, args.time_column), units
-        write_record(frame, args.dataset, record_id, file_units, path,
-                     attrs.get(record_id, attrs.get(path.name, {})), args.overwrite)
+    return ids, units, attrs
+
+
+def _ingest(args: argparse.Namespace) -> int:
+    written, name = 0, ", ".join(args.files)
+    try:
+        ids, units, attrs = _ingest_inputs(args)
+        for name, record_id in zip(args.files, ids):
+            path = Path(name)
+            readers = {".out": read_openfast_out, ".outb": read_openfast_outb}
+            if path.suffix.lower() in readers:
+                frame, file_units = readers[path.suffix.lower()](path)
+            else:
+                frame, file_units = read_csv(path, args.time_column), units
+            write_record(frame, args.dataset, record_id, file_units, path,
+                         attrs.get(record_id, attrs.get(path.name, {})), args.overwrite)
+            written += 1
+    except (ValueError, TypeError, KeyError, OSError, OverflowError, RuntimeError, ArrowException) as exc:
+        raise ValueError(f"{name}: {exc}; records written before error: {written}") from exc
     print(f"Records ingested: {len(args.files)}.")
     return 0
 
@@ -117,6 +128,8 @@ def _analyze(args: argparse.Namespace) -> int:
     if not (args.dataset / "records").is_dir():
         raise ValueError("missing directory: records")
     options = _json(args.config)
+    if args.command == "check" and args.channels is not None:
+        options["channels"] = tuple(name.strip() for name in args.channels.split(","))
     config = (CheckConfig(**options) if args.command == "check" else
               SegmentConfig(**(options | {"noise_floor": args.noise_floor})))
     folder = args.dataset / ("checks" if args.command == "check" else "segments")

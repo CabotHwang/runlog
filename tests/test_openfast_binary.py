@@ -69,7 +69,7 @@ def test_binary_unsupported_id(tmp_path, capsys, file_id):
 
 @pytest.mark.parametrize("names,units", [
     (["Other", "Sway", "Fx"], None), (["Time", "Fx", "Fx"], None),
-    (["Time", "time", "Fx"], None), (None, ["(s)", "m", "(N)"]),
+    (["Time", "time", "Fx"], None),
 ])
 def test_binary_invalid_labels(tmp_path, names, units):
     content, _ = binary_fixture(2, names, units)
@@ -77,6 +77,21 @@ def test_binary_invalid_labels(tmp_path, names, units):
     path.write_bytes(content)
     with pytest.raises(ValueError, match="invalid OpenFAST binary"):
         read_openfast_outb(path)
+
+
+@pytest.mark.parametrize("file_id", [1, 2, 3, 4])
+@pytest.mark.parametrize("units,expected", [
+    (["s", "m", "N"], {"Sway": "m", "Fx": "N"}),
+    (["(s)", "", "()"], {"Sway": "-", "Fx": "-"}),
+    (["s", "(m)", "-"], {"Sway": "m", "Fx": "-"}),
+])
+def test_binary_units_accept_bare_wrapped_and_empty(tmp_path, file_id, units, expected):
+    content, _ = binary_fixture(file_id, names=["Time", "Sway", "Fx"], units=units)
+    path = tmp_path / "units.outb"
+    path.write_bytes(content)
+    assert read_openfast_outb(path)[1] == expected
+    assert main(["ingest", str(path), "--dataset", str(tmp_path / "data")]) == 0
+    assert {c.name: c.unit for c in load_record(tmp_path / "data", "units")[1].channels} == expected
 
 
 @pytest.mark.parametrize("position,dtype,value,message", [
