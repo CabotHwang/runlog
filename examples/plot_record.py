@@ -37,9 +37,9 @@ def _plot_timeline(axis, dataset: Path, record: dict) -> None:
 def _plot_response(axis, dataset: Path, clean: list[dict]) -> None:
     axis.plot([row["vr"] for row in clean], [row["rms"] for row in clean],
               "o-", color="#234963", markersize=5, label="No failed checks")
-    faulty = query(dataset, "SELECT DISTINCT c.record_id, c.check_name, a.value_num AS vr "
+    faulty = query(dataset, "SELECT c.record_id, GROUP_CONCAT(DISTINCT c.check_name) AS check_name, a.value_num AS vr "
                    "FROM checks c JOIN attrs a ON a.record_id=c.record_id AND a.key='vr' "
-                   "WHERE c.status='fail' ORDER BY a.value_num")
+                   "WHERE c.status='fail' GROUP BY c.record_id, a.value_num ORDER BY a.value_num")
     markers = ["X", "s", "^", "D", "v"]
     colors = ["#b34d00", "#824b99", "#b52635", "#397c56", "#746400"]
     for run, marker, color in zip(faulty, markers, colors):

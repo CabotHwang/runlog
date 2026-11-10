@@ -24,7 +24,12 @@ python3 -m venv .venv
 
 Run the example pipeline from the repository root. The second command redraws `docs/figures/record_timeline.png`.
 The script creates 16 synthetic records with a fixed random seed.
-Five records contain one fault each: a gap, a flatline, spikes, clipping, and NaN values.
+Five records contain one fault each: a gap, a frozen sensor, spikes, clipping, and NaN values.
+These records fail seven checks. One fault can cause more than one failed check.
+The frozen sensor fails flatline while held and spikes at release.
+Each channel includes seeded Gaussian sensor noise. Sway noise has a standard deviation of 0.5 mm.
+The other channels have noise at 1% of their typical amplitude.
+The sensor holds its last value for 3 s. Clipping limits the noisy sway signal to 70% of its amplitude.
 The check command must exit with code 1 because these faults are present. The script stops if it does not.
 
 ```bash
@@ -36,22 +41,22 @@ The script prints this output. Its last command runs the catalog query from the 
 
 ```text
 Records ingested: 16.
-Records checked: 16. Failed checks: 5.
+Records checked: 16. Failed checks: 7.
 Records tagged: 16.
 Dataset verified.
 Catalog rebuilt.
 record_id,vr,steady_rms_m
-run_01,3.0,0.01641
-run_02,3.467,0.0214
+run_01,3.0,0.01642
+run_02,3.467,0.02147
 run_04,4.4,0.05486
-run_05,4.867,0.08568
-run_07,5.8,0.13896
-run_08,6.267,0.13687
-run_10,7.2,0.08114
-run_11,7.667,0.0511
-run_13,8.6,0.02042
+run_05,4.867,0.08587
+run_07,5.8,0.13897
+run_08,6.267,0.13688
+run_10,7.2,0.08088
+run_11,7.667,0.05109
+run_13,8.6,0.02044
 run_14,9.067,0.01603
-run_16,10.0,0.0142
+run_16,10.0,0.01425
 ```
 
 ## Dataset layout
@@ -84,11 +89,15 @@ Channel names are unique.
 Each channel has a non-empty unit.
 Attribute values are numbers, strings, or booleans.
 
-Ingest accepts CSV and text OpenFAST `.out` files.
+Ingest accepts CSV, text OpenFAST `.out` files, and binary OpenFAST `.outb` files.
+The binary reader supports FileIDs 1, 2, 3, and 4. It reports unsupported formats and truncated files as data errors.
 Use `--units` with a JSON mapping from channel names to units for CSV inputs.
 OpenFAST inputs use units from the file header.
 Use `--time-column` to select the CSV time column.
-Use `--attrs` with a JSON mapping from file names to attribute dictionaries.
+Record ids use the file stem by default (`--id-from stem`).
+Use `--id-from parent` to use the name of the parent directory. Duplicate record ids cause an error.
+Use `--attrs` with a JSON mapping from record ids or file names to attribute dictionaries.
+Ingest first looks for the record id, then the file name.
 Use `--overwrite` to replace an existing record.
 Each record write removes its previous check and segment sidecars.
 
@@ -109,16 +118,25 @@ The table gives the default rules.
 | `non_finite` | Each channel has no NaN or infinite values. |
 | `flatline` | Each run of identical values lasts at most 2 s. |
 | `clipping` | Runs at channel limits contain at most 1% of samples. Each counted run has at least three samples. |
-| `spikes` | No spike score exceeds 8. The rolling window is centered and has 101 samples. The scale has a global floor. |
+| `spikes` | No second-difference score exceeds 8. Each consecutive run above the limit counts as one event. The centered scale window has 101 samples. |
 | `derivative_pair` | Normalized RMS error between position gradient and velocity is at most 0.05. Pairs require configuration. |
 
-The `spikes` check uses a Hampel filter. The residual is the value minus its rolling median. The spike score is the absolute residual divided by the scale.
-The scale is 1.4826 times the larger of the local median absolute deviation (MAD) and the global residual MAD.
-The local MAD uses the same window.
-The scale is at least 1.4826 times the smallest nonzero absolute channel step that occurs in at least `resolution_min_fraction` of all channel steps (5% by default).
-This step estimates the channel quantum.
-If the scale and the residual are both zero for every sample, the result is `not_testable`.
-Use an odd `spike_window` of at least three samples.
+The `spikes` check uses the second difference: `d2[i] = x[i-1] - 2*x[i] + x[i+1]`.
+It uses the interior samples, where both neighbours are present.
+The spike score is `abs(d2)` divided by the scale.
+The scale uses two centered rolling medians.
+First, `m[i]` is the rolling median of `d2`.
+Then, the scale is `1.4826 * rolling_median(abs(d2 - m))`.
+Each absolute deviation uses the median at its own sample.
+Both windows use `spike_window` samples and use the available samples at the record ends.
+The scale is at least `sqrt(6) * 1.4826` times the channel quantum.
+The factor `sqrt(6)` accounts for the noise gain of the second difference.
+The quantum is the smallest nonzero absolute channel step that occurs in at least `resolution_min_fraction` of all channel steps (5% by default).
+Each consecutive run of scores above `spike_z` counts as one event.
+The check value is the number of events.
+A zero scale gives a zero score for a zero second difference and an infinite score for a nonzero second difference.
+If the scale and the second differences are all zero, the result is `not_testable`.
+The `spike_window` value is an odd integer of at least three samples.
 For the `sample_rate` check, timestamp resolution is the smallest nonzero absolute deviation from the median step that occurs in at least 5% of non-gap steps.
 Gap steps and floating-point roundoff do not count.
 Set `resolution_min_fraction` to change this fraction.
@@ -145,30 +163,34 @@ The required `--noise-floor` value overrides any `noise_floor` in the config fil
 
 ## Segment tags
 
-The envelope is a rolling RMS after subtraction of the channel median.
-The default RMS window is 10 s.
+The envelope is the rolling standard deviation.
+Each value is the RMS about the mean of the same centered window.
+The default window is 10 s.
+At each record end, the window uses the available samples.
 Set a positive noise floor in channel units.
 Intervals include their start and exclude their end.
 
 | Tag | Rule |
 |---|---|
 | `quiet` | The envelope is below the noise floor. |
-| `steady` | The interval is the union of flat windows. Each window lasts at least `min_steady_s` (30 s by default). |
-| `buildup` | Before steady, the envelope rises from below 30% to at least 90% of the steady level. |
+| `steady` | Flat windows form a candidate interval. Each window lasts at least `min_steady_s` (30 s by default). The reported interval starts and ends where the envelope reaches `transition_high` times the candidate level. |
+| `buildup` | Before steady, the envelope rises from below `transition_low` to at least `transition_high` times the steady level. The defaults are 0.3 and 0.9. |
 | `decay` | After steady, the envelope follows the reverse buildup rule. |
 
 A flat window has a range at most twice `rel_tol` times its median.
 Its median is at least the noise floor.
 The default `rel_tol` is 0.05.
-The steady level is the median envelope inside the merged interval.
+The steady level is the median envelope inside the merged candidate interval.
+The transition limits satisfy `0 < transition_low < transition_high <= 1`.
 Slow transitions can satisfy the flatness rule and extend the steady interval.
-Buildup and decay permit dips up to 5% of the steady level.
+Buildup and decay permit dips up to `rel_tol` times the steady level.
 Other intervals have no tag.
 
-Each segment stores its record, channel, boundaries, tag, RMS, peak frequency, method, and method version.
-The method is `rolling_rms`, version 1.
+Each segment stores `record_id`, `channel`, `start_s`, `end_s`, `tag`, `rms`, `peak_freq_hz`, `method`, and `method_version`.
+The segment RMS is the RMS about the segment mean.
+The method is `rolling_std`, version 2.
 Peak frequency uses a Hann-window FFT.
-Constant segments and segments shorter than the RMS window have no peak frequency.
+Constant segments and segments shorter than the envelope window have no peak frequency.
 Records shorter than twice that window give `not_testable`.
 
 ## Catalog
@@ -247,7 +269,7 @@ flatline,1,0.015625
 gaps,1,0.0625
 non_finite,1,0.015625
 sample_rate,0,0.0
-spikes,1,0.015625
+spikes,3,0.046875
 time_monotonic,0,0.0
 ```
 
@@ -267,16 +289,19 @@ report = tag_segments(
 
 ## Limits
 
-The library does not read binary OpenFAST `.outb` files.
 Ingest preserves time errors for later checks.
 Segment tagging assumes uniform sample spacing and uses the median time step.
 Check the time results before you use segment tags.
 A passed check does not establish physical validity.
 A channel that holds a constant value for part of a record, such as the speed of a stopped carriage, can fail the flatline and clipping checks with the default thresholds. A fully constant channel fails flatline and gives `not_testable` for clipping.
 Use `--config` to set thresholds for your data. One configuration applies to all channels in a `check` run.
-In a record with mostly strong oscillation, the global spike scale floor makes spike detection less sensitive in quiet parts.
+A step change counts as a spike event.
+Spike sensitivity falls when the sampling rate is low compared with the signal frequency.
+For a signal with little noise, a spike window shorter than one cycle can report smooth oscillation as spikes.
 Rounded or simulated data with repeated extrema can fail the clipping check.
 A slow ramp between plateaus can extend a steady interval and bias its RMS.
+A mean drift during a transition can leave the transition without a tag.
+Numerical differentiation amplifies position noise, so the derivative-pair check needs low noise or a larger tolerance.
 
 ## License
 
