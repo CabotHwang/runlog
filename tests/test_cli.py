@@ -181,15 +181,18 @@ def test_tag_keeps_other_channels_and_skips_missing(tmp_path, make_test_record):
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
-def test_ingest_duplicate_stems_before_writes(tmp_path, capsys, overwrite):
-    paths = [tmp_path / "one/r.csv", tmp_path / "two/r.csv"]
+@pytest.mark.parametrize("mode", ["stem", "parent"])
+def test_ingest_duplicate_ids_before_writes(tmp_path, capsys, overwrite, mode):
+    paths = ([tmp_path / "one/r.csv", tmp_path / "two/r.csv"] if mode == "stem" else
+             [tmp_path / "one/a.csv", tmp_path / "one/b.csv"])
     for path in paths:
-        path.parent.mkdir()
+        path.parent.mkdir(exist_ok=True)
         path.write_text("time,x\n0,1\n1,2\n", encoding="utf-8")
     units = tmp_path / "units.json"
     units.write_text('{"x":"m"}', encoding="utf-8")
     dataset = tmp_path / "dataset"
-    args = ["ingest", *map(str, paths), "--units", str(units), "--dataset", str(dataset)]
+    args = ["ingest", *map(str, paths), "--units", str(units), "--dataset", str(dataset),
+            "--id-from", mode]
     assert main(args + (["--overwrite"] if overwrite else [])) == 2
     assert "duplicate record" in capsys.readouterr().err
     assert not dataset.exists()
@@ -230,3 +233,49 @@ def test_numeric_overflow_is_cli_data_error(tmp_path, capsys):
     write_record(pd.DataFrame({"time": [0, 1]}), tmp_path, "r", {}, "r.csv", {"big": 10**100})
     assert main(["index", "--dataset", str(tmp_path)]) == 2
     assert capsys.readouterr().err.startswith("runlog: ")
+
+
+@pytest.mark.parametrize("mode", [None, "stem", "parent"])
+def test_ingest_ids_and_attribute_priority(tmp_path, mode):
+    paths = [tmp_path / "one/first.csv", tmp_path / "two/second.csv"]
+    for path in paths:
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("time,x\n0,1\n1,2\n", encoding="utf-8")
+    ids = [p.parent.name if mode == "parent" else p.stem for p in paths]
+    attrs = tmp_path / "attrs.json"
+    attrs.write_text(json.dumps({ids[0]: {"source": "id"},
+                                paths[0].name: {"source": "file"},
+                                paths[1].name: {"source": "fallback"}}), encoding="utf-8")
+    units = tmp_path / "units.json"
+    units.write_text('{"x":"m"}', encoding="utf-8")
+    dataset = tmp_path / "dataset"
+    args = ["ingest", *map(str, paths), "--units", str(units), "--attrs", str(attrs),
+            "--dataset", str(dataset)]
+    assert main(args + (["--id-from", mode] if mode else [])) == 0
+    assert load_record(dataset, ids[0])[1].attrs == {"source": "id"}
+    assert load_record(dataset, ids[1])[1].attrs == {"source": "fallback"}
+    assert sorted(p.stem for p in (dataset / "records").glob("*.json")) == sorted(ids)
+    attrs.write_text(json.dumps({ids[0]: {}, paths[0].name: {"source": "file"}}))
+    assert main(args + ["--overwrite"] + (["--id-from", mode] if mode else [])) == 0
+    assert load_record(dataset, ids[0])[1].attrs == {}
+
+
+def test_ingest_parent_ids_accept_shared_file_name(tmp_path):
+    paths = [tmp_path / "one/shared.out", tmp_path / "two/shared.out"]
+    for path in paths:
+        path.parent.mkdir()
+        path.write_text("Time X\n(s) (m)\n0 1\n1 2\n", encoding="utf-8")
+    dataset = tmp_path / "dataset"
+    assert main(["ingest", *map(str, paths), "--id-from", "parent",
+                 "--dataset", str(dataset)]) == 0
+    assert load_record(dataset, "one")[1].source == "shared.out"
+    assert load_record(dataset, "two")[1].source == "shared.out"
+
+
+def test_ingest_parent_id_for_relative_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "r.out"
+    source.write_text("Time X\n(s) (m)\n0 1\n1 2\n", encoding="utf-8")
+    dataset = tmp_path / "data"
+    assert main(["ingest", "r.out", "--id-from", "parent", "--dataset", str(dataset)]) == 0
+    assert load_record(dataset, tmp_path.name)[1].source == "r.out"

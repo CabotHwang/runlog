@@ -13,7 +13,7 @@ from pyarrow import ArrowException
 from . import __version__
 from .catalog import build_catalog, named_queries, query
 from .checks import CheckConfig, run_checks
-from .ingest import load_record, read_csv, read_openfast_out, write_record
+from .ingest import load_record, read_csv, read_openfast_out, read_openfast_outb, write_record
 from .manifest import read_analysis, verify_dataset
 from .schema import RecordMeta
 from .segments import SegmentConfig, tag_segments
@@ -22,11 +22,13 @@ from .segments import SegmentConfig, tag_segments
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="runlog", description="Check and tag time-series test logs.")
     commands = parser.add_subparsers(dest="command", required=True)
-    ingest = commands.add_parser("ingest", help="Read CSV or OpenFAST .out files into the dataset.")
-    ingest.add_argument("files", nargs="+", help="CSV or OpenFAST .out files to read.")
+    ingest = commands.add_parser("ingest", help="Read CSV or OpenFAST .out/.outb files into the dataset.")
+    ingest.add_argument("files", nargs="+", help="CSV or OpenFAST .out/.outb files to read.")
     ingest.add_argument("--time-column", default="time", help="CSV time column name (default: time).")
     ingest.add_argument("--units", type=Path, help="JSON file that maps CSV channel names to units.")
-    ingest.add_argument("--attrs", type=Path, help="JSON file that maps input file names to attributes.")
+    ingest.add_argument("--attrs", type=Path, help="JSON file that maps record ids or input file names to attributes.")
+    ingest.add_argument("--id-from", choices=("stem", "parent"), default="stem",
+                        help="Record id source (default: stem).")
     ingest.add_argument("--overwrite", action="store_true", help="Replace existing records.")
     check = commands.add_parser("check", help="Check record quality.")
     check.add_argument("--config", type=Path, help="JSON file with CheckConfig fields.")
@@ -79,20 +81,22 @@ def _export_catalog(args: argparse.Namespace) -> None:
 
 
 def _ingest(args: argparse.Namespace) -> int:
-    ids = [Path(name).stem for name in args.files]
+    ids = [Path(name).resolve().parent.name if args.id_from == "parent" else Path(name).stem
+           for name in args.files]
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate record ids in input files")
-    if args.units is None and any(Path(name).suffix.lower() != ".out" for name in args.files):
+    if args.units is None and any(Path(name).suffix.lower() not in (".out", ".outb") for name in args.files):
         raise ValueError("--units is required for CSV inputs")
     units, attrs = _json(args.units), _json(args.attrs)
-    for name in args.files:
+    for name, record_id in zip(args.files, ids):
         path = Path(name)
-        if path.suffix.lower() == ".out":
-            frame, file_units = read_openfast_out(path)
+        readers = {".out": read_openfast_out, ".outb": read_openfast_outb}
+        if path.suffix.lower() in readers:
+            frame, file_units = readers[path.suffix.lower()](path)
         else:
             frame, file_units = read_csv(path, args.time_column), units
-        write_record(frame, args.dataset, path.stem, file_units, path,
-                     attrs.get(path.name, {}), args.overwrite)
+        write_record(frame, args.dataset, record_id, file_units, path,
+                     attrs.get(record_id, attrs.get(path.name, {})), args.overwrite)
     print(f"Records ingested: {len(args.files)}.")
     return 0
 
