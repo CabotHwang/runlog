@@ -10,7 +10,11 @@ from runlog import __version__
 
 def test_reduced_validation_report(tmp_path, monkeypatch, capsys):
     script = runpy.run_path("examples/validate_checks.py")
-    monkeypatch.setattr(sys, "argv", ["validate_checks.py", "--trials", "2", "--samples", "2000", "--output", str(tmp_path)])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["validate_checks.py", "--trials", "2", "--samples", "2000", "--output", str(tmp_path)],
+    )
     script["main"]()
     report = json.loads((tmp_path / "check_characteristics.json").read_text())
     assert report == script["measure"](trials=2, samples=2000)
@@ -39,7 +43,7 @@ def test_reduced_validation_report(tmp_path, monkeypatch, capsys):
         assert len(row["segment_rms_m"]) == row["segment_count"]
         assert (row["steady_rms_m"] is None) == (row["segment_count"] == 0)
     markdown = (tmp_path / "README.md").read_text()
-    assert "Tagging records last 200 s" in markdown
+    assert "The records for tag tests have a duration of 200 s." in markdown
     assert "Spike false alarms" in markdown
     assert "Steady random response" in markdown
     assert capsys.readouterr().out.strip() == markdown.strip()
