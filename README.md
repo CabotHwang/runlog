@@ -4,7 +4,7 @@ Convert time-series logs into a dataset with quality checks, segment tags, and S
 
 [![CI](https://github.com/CabotHwang/runlog/actions/workflows/ci.yml/badge.svg)](https://github.com/CabotHwang/runlog/actions/workflows/ci.yml)
 
-I developed runlog for data processing in my master's research on vortex-induced motion (VIM) of floating offshore wind turbines.
+I use runlog for data quality checks and cataloging in my master's research on vortex-induced motion (VIM) of floating offshore wind turbines.
 
 ```text
 Log files → Parquet + metadata → quality checks → segment tags → SQL queries
