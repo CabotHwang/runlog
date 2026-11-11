@@ -1,0 +1,8 @@
+{
+  "noise_floor": 0.005,
+  "window_s": 10.0,
+  "min_steady_s": 30.0,
+  "rel_tol": 0.05,
+  "transition_low": 0.3,
+  "transition_high": 0.9
+}

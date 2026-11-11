@@ -1,0 +1,6 @@
+{
+  "channels": ["x", "v"],
+  "expected_rate_hz": 20.0,
+  "max_flatline_s": 65.0,
+  "derivative_pairs": [["x", "v"]]
+}

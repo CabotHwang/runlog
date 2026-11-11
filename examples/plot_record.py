@@ -1,75 +1,79 @@
-"""Plot stored sway tags and the catalog response curve."""
+"""Plot the prescribed force and integrated displacement of the controlled example."""
+
+import json
 import os
-import sys
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/runlog-matplotlib")
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from runlog import load_record, query
 
 
-def _plot_timeline(axis, dataset: Path, record: dict) -> None:
-    record_id = record["record_id"]
-    frame, _ = load_record(dataset, record_id)
-    segments = query(dataset, "SELECT * FROM segments WHERE record_id=? AND channel=? "
-                     "ORDER BY start_s", (record_id, "sway"))
-    failed = query(dataset, "SELECT check_name FROM checks WHERE record_id=? AND status='fail'",
-                   (record_id,))
-    colors = {"quiet": "#e0e6eb", "buildup": "#f9df9b", "steady": "#b8dfc5", "decay": "#c8c4e5"}
-    for segment in segments:
-        axis.axvspan(segment["start_s"], segment["end_s"], color=colors[segment["tag"]], zorder=0)
-    signal, = axis.plot(frame.time, frame.sway, color="#234963", linewidth=0.8, label="Sway")
-    qc = ", ".join(row["check_name"] for row in failed) if failed else "no failed checks"
-    axis.set_title(f"(a) {record_id} · Vr = {record['vr']:.2f} · QC: {qc}", loc="left")
-    axis.set(xlabel="Time [s]", ylabel="Sway [m]",
-             xlim=(float(frame.time.iloc[0]), float(frame.time.iloc[-1])))
-    axis.legend(handles=[signal] + [Patch(color=color, label=tag) for tag, color in colors.items()],
-                loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False)
-    axis.grid(alpha=0.2)
-
-
-def _plot_response(axis, dataset: Path, clean: list[dict]) -> None:
-    axis.plot([row["vr"] for row in clean], [row["rms"] for row in clean],
-              "o-", color="#234963", markersize=5, label="No failed checks")
-    faulty = query(dataset, "SELECT c.record_id, GROUP_CONCAT(DISTINCT c.check_name) AS check_name, a.value_num AS vr "
-                   "FROM checks c JOIN attrs a ON a.record_id=c.record_id AND a.key='vr' "
-                   "WHERE c.status='fail' GROUP BY c.record_id, a.value_num ORDER BY a.value_num")
-    markers = ["X", "s", "^", "D", "v"]
-    colors = ["#b34d00", "#824b99", "#b52635", "#397c56", "#746400"]
-    for run, marker, color in zip(faulty, markers, colors):
-        segments = query(dataset, "SELECT rms FROM segments WHERE record_id=? "
-                         "AND channel='sway' AND tag='steady' ORDER BY start_s", (run["record_id"],))
-        if not segments:
-            axis.plot([], [], linestyle="none", label=f"{run['record_id']}: {run['check_name']} (no steady tags)")
-            continue
-        axis.scatter([run["vr"]] * len(segments), [row["rms"] for row in segments],
-                     marker=marker, color=color, s=65, zorder=3,
-                     label=f"{run['record_id']}: {run['check_name']}")
-    axis.set_title("(b) Stored steady-segment RMS", loc="left")
-    axis.set(xlabel="Reduced velocity, Vr [dimensionless]", ylabel="Steady sway RMS [m]", ylim=(0, None))
-    axis.legend(loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False)
-    axis.grid(alpha=0.2)
-
-
 def plot_record() -> Path:
-    """Write the README figure from the generated demo dataset."""
     root = Path(__file__).resolve().parents[1]
-    dataset = root / "examples/output/dataset"
-    clean = query(dataset, "SELECT s.record_id, a.value_num AS vr, s.rms FROM segments s "
-                  "JOIN attrs a ON a.record_id=s.record_id AND a.key='vr' "
-                  "WHERE s.tag='steady' AND s.channel='sway' AND NOT EXISTS "
-                  "(SELECT 1 FROM checks c WHERE c.record_id=s.record_id AND c.status='fail') "
-                  "ORDER BY a.value_num")
-    peak = max(clean, key=lambda row: row["rms"])
-    fig, (timeline, response) = plt.subplots(2, 1, figsize=(12, 8), layout="constrained")
-    _plot_timeline(timeline, dataset, peak)
-    _plot_response(response, dataset, clean)
+    dataset = root / "examples/output/forced_oscillator"
+    frame, meta = load_record(dataset, "forced_oscillator")
+    metadata = json.loads(
+        (root / "examples/output/forced_oscillator_input/metadata.json").read_text(encoding="utf-8")
+    )
+    if meta.attrs["input_sha256"] != metadata["csv_sha256"]:
+        raise ValueError("processed record and input metadata do not match")
+    params = metadata["params"]
+    segments = query(dataset, "SELECT * FROM segments WHERE channel='x' ORDER BY start_s")
+    checks = query(dataset, "SELECT status FROM checks")
+    passed = sum(row["status"] == "pass" for row in checks)
+    colors = {"quiet": "#e0e6eb", "buildup": "#f9df9b", "steady": "#b8dfc5", "decay": "#c8c4e5"}
+    fig, (drive_axis, response_axis) = plt.subplots(
+        2,
+        1,
+        figsize=(11, 5.5),
+        sharex=True,
+        layout="constrained",
+        gridspec_kw={"height_ratios": [0.7, 1.3]},
+    )
+    drive_axis.plot(frame.time, frame.force, color="#6c7278", linewidth=0.8)
+    drive_axis.set(title="Input: prescribed harmonic force", ylabel="Force [N]")
+    for time, label in [(params["drive_on_s"], "Drive on"), (params["drive_off_s"], "Drive off")]:
+        for axis in (drive_axis, response_axis):
+            axis.axvline(time, color="#6c7278", linestyle="--", linewidth=0.8)
+        drive_axis.text(
+            time + 3,
+            0.8 * params["force_amplitude_n"],
+            label,
+            fontsize=9,
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85},
+        )
+    present = []
+    for segment in segments:
+        response_axis.axvspan(
+            segment["start_s"],
+            min(segment["end_s"], frame.time.iloc[-1]),
+            color=colors[segment["tag"]],
+            zorder=0,
+        )
+        if segment["tag"] not in present:
+            present.append(segment["tag"])
+    response_axis.plot(frame.time, frame.x, color="#234963", linewidth=0.85)
+    response_axis.set(
+        title=f"Output: integrated displacement · {passed}/{len(checks)} checks pass",
+        ylabel="Displacement [m]",
+        xlabel="Time [s]",
+        xlim=(frame.time.iloc[0], frame.time.iloc[-1]),
+    )
+    response_axis.legend(
+        handles=[Patch(color=colors[tag], label=tag) for tag in present],
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1),
+        frameon=False,
+    )
+    fig.suptitle("Controlled forced/damped oscillator — numerical demonstration", fontsize=12)
+    for axis in (drive_axis, response_axis):
+        axis.grid(alpha=0.2)
     destination = root / "docs/figures/record_timeline.png"
     destination.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(destination, dpi=160)

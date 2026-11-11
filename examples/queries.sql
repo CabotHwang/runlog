@@ -47,17 +47,20 @@ WHERE s.tag = 'steady'
 ORDER BY s.channel, rms_rank, s.record_id, s.segment_id;
 
 -- name: steady_coverage
--- Lists records whose steady time covers at least half of the record duration.
-WITH steady_time AS (
+-- Tags include the final sample interval; add that interval when the rate is known.
+WITH record_time AS (
+    SELECT record_id, duration_s + COALESCE(1e0 / sample_rate_hz, 0) AS span_s
+    FROM records
+), steady_time AS (
     SELECT record_id, channel, SUM(end_s - start_s) AS steady_s
     FROM segments
     WHERE tag = 'steady'
     GROUP BY record_id, channel
 )
-SELECT r.record_id, t.channel, t.steady_s, t.steady_s / r.duration_s AS steady_share
-FROM records r
+SELECT r.record_id, t.channel, t.steady_s, t.steady_s / r.span_s AS steady_share
+FROM record_time r
 JOIN steady_time t ON t.record_id = r.record_id
-WHERE r.duration_s > 0 AND t.steady_s >= 0.5 * r.duration_s
+WHERE r.span_s > 0 AND t.steady_s >= 0.5 * r.span_s
 ORDER BY r.record_id, t.channel;
 
 -- name: segment_tag_shares

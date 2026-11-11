@@ -1,7 +1,7 @@
 import json
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from runlog import build_catalog, query, verify_dataset
 from runlog.cli import main
@@ -17,7 +17,7 @@ def test_quickstart():
         env=os.environ,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Records checked: 16. Failed checks: 7." in result.stdout
+    assert "Records checked: 16. Checks: 310 pass, 7 fail, 3 not testable." in result.stdout
     dataset = root / "examples/output/dataset"
     expected = {
         "run_03": [("gaps", None)],
@@ -34,9 +34,7 @@ def test_quickstart():
         "(SELECT record_id FROM checks WHERE status='fail') ORDER BY record_id",
     )
     assert rows == [
-        {"record_id": f"run_{i:02d}"}
-        for i in range(1, 17)
-        if f"run_{i:02d}" not in expected
+        {"record_id": f"run_{i:02d}"} for i in range(1, 17) if f"run_{i:02d}" not in expected
     ]
     assert query(
         dataset,
@@ -67,11 +65,38 @@ def test_all_json_reads_use_utf8(tmp_path, make_test_record, monkeypatch):
     config.write_text("{}", encoding="utf-8")
     csv = tmp_path / "s.csv"
     csv.write_text("time,x\n0,1\n1,2\n", encoding="utf-8")
-    assert main(["ingest", str(csv), "--units", str(units), "--attrs", str(attrs),
-                 "--dataset", str(dataset)]) == 0
+    assert (
+        main(
+            [
+                "ingest",
+                str(csv),
+                "--units",
+                str(units),
+                "--attrs",
+                str(attrs),
+                "--dataset",
+                str(dataset),
+            ]
+        )
+        == 0
+    )
     assert main(["check", "--dataset", str(dataset), "--config", str(config)]) == 1
-    assert main(["tag", "--dataset", str(dataset), "--channel", "x", "--noise-floor", "0.1",
-                 "--config", str(config)]) == 0
+    assert (
+        main(
+            [
+                "tag",
+                "--dataset",
+                str(dataset),
+                "--channel",
+                "x",
+                "--noise-floor",
+                "0.1",
+                "--config",
+                str(config),
+            ]
+        )
+        == 0
+    )
     assert verify_dataset(dataset) == []
     build_catalog(dataset)
     assert query(dataset, "SELECT value_text FROM attrs WHERE key='label'") == [
@@ -82,17 +107,15 @@ def test_all_json_reads_use_utf8(tmp_path, make_test_record, monkeypatch):
 def _assert_demo_checks(dataset, expected):
     for index in range(1, 17):
         record_id = f"run_{index:02d}"
-        checks = json.loads(
-            (dataset / f"checks/{record_id}.json").read_text(encoding="utf-8")
-        )["checks"]
+        checks = json.loads((dataset / f"checks/{record_id}.json").read_text(encoding="utf-8"))[
+            "checks"
+        ]
         failed = [(r["check"], r["channel"]) for r in checks if r["status"] == "fail"]
         assert failed == expected.get(record_id, [])
         if record_id == "run_09":
             assert (
                 next(
-                    r["value"]
-                    for r in checks
-                    if r["check"] == "spikes" and r["channel"] == "sway"
+                    r["value"] for r in checks if r["check"] == "spikes" and r["channel"] == "sway"
                 )
                 == 3
             )

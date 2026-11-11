@@ -1,0 +1,11 @@
+{
+  "mass_kg": 1.0,
+  "natural_frequency_hz": 0.2,
+  "damping_ratio": 0.05,
+  "force_amplitude_n": 0.015,
+  "drive_frequency_hz": 0.2,
+  "drive_on_s": 60.0,
+  "drive_off_s": 240.0,
+  "duration_s": 360.0,
+  "dt_s": 0.05
+}

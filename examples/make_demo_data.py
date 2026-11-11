@@ -9,7 +9,8 @@ import numpy as np
 def _signals(time, vr, rng):
     amplitude = 0.02 + 0.18 * np.exp(-(((vr - 6) / 1.5) ** 2))
     envelope = np.interp(
-        time, [0, 30, 70, 230, 270, 300],
+        time,
+        [0, 30, 70, 230, 270, 300],
         [0.002, 0.002, amplitude, amplitude, 0.002, 0.002],
     )
     phase = rng.uniform(0, 2 * np.pi)
