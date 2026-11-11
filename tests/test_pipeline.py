@@ -6,9 +6,19 @@ import pandas as pd
 import pytest
 
 from runlog import (
-    CheckConfig, SegmentConfig, SegmentReport, __version__, build_catalog,
-    check_dataset, load_record, query, run_checks, tag_dataset, tag_segments,
-    verify_dataset, write_record,
+    CheckConfig,
+    SegmentConfig,
+    SegmentReport,
+    __version__,
+    build_catalog,
+    check_dataset,
+    load_record,
+    query,
+    run_checks,
+    tag_dataset,
+    tag_segments,
+    verify_dataset,
+    write_record,
 )
 from runlog.cli import main
 
@@ -37,9 +47,15 @@ def test_check_dataset_results_and_sidecars(dataset, capsys):
         frame, meta = load_record(dataset, record_id)
         assert results == run_checks(frame, record_id, config)
         assert any(result.status == "fail" for result in results)
-        data = {"record_sha256": meta.sha256, "runlog_version": __version__,
-                "config": asdict(config), "checks": [asdict(result) for result in results]}
-        assert (dataset / f"checks/{record_id}.json").read_text() == json.dumps(data, indent=2) + "\n"
+        data = {
+            "record_sha256": meta.sha256,
+            "runlog_version": __version__,
+            "config": asdict(config),
+            "checks": [asdict(result) for result in results],
+        }
+        assert (dataset / f"checks/{record_id}.json").read_text() == json.dumps(
+            data, indent=2
+        ) + "\n"
     assert verify_dataset(dataset) == []
 
 
@@ -56,25 +72,39 @@ def test_tag_dataset_results_and_channel_preservation(dataset, capsys):
     data = read_json(dataset / "segments/a.json")
     assert data["record_sha256"] == meta.sha256
     assert data["channels"]["x"] == original
-    expected = {**asdict(reports["a"]), "runlog_version": __version__,
-                "config": asdict(SegmentConfig(0.2, window_s=2))}
+    expected = {
+        **asdict(reports["a"]),
+        "runlog_version": __version__,
+        "config": asdict(SegmentConfig(0.2, window_s=2)),
+    }
     assert data["channels"]["y"] == json.loads(json.dumps(expected))
     for channel in ("time", "missing"):
         missing = tag_dataset(dataset, channel, config)
         assert all(report == SegmentReport("not_testable", ()) for report in missing.values())
     assert verify_dataset(dataset) == []
     build_catalog(dataset)
-    assert {row["channel"] for row in query(dataset, "SELECT DISTINCT channel FROM segments")} == {"x", "y"}
+    assert {row["channel"] for row in query(dataset, "SELECT DISTINCT channel FROM segments")} == {
+        "x",
+        "y",
+    }
 
 
 @pytest.mark.parametrize("command", ["check", "tag"])
 def test_pipeline_and_cli_write_identical_bytes(dataset, command, capsys):
     if command == "check":
         check_dataset(dataset)
-        folder, options, output = "checks", [], "Records checked: 2. Failed checks: 0.\n"
+        folder, options, output = (
+            "checks",
+            [],
+            "Records checked: 2. Checks: 20 pass, 0 fail, 0 not testable.\n",
+        )
     else:
         tag_dataset(dataset, "x", SegmentConfig(0.1))
-        folder, options, output = "segments", ["--channel", "x", "--noise-floor", "0.1"], "Records tagged: 2.\n"
+        folder, options, output = (
+            "segments",
+            ["--channel", "x", "--noise-floor", "0.1"],
+            "Records processed: 2. Taggable: 2. Not testable: 0.\nSegments written: 2.\n",
+        )
     before = {path.name: path.read_bytes() for path in (dataset / folder).glob("*.json")}
     assert main([command, "--dataset", str(dataset), *options]) == 0
     assert capsys.readouterr().out == output
@@ -84,7 +114,11 @@ def test_pipeline_and_cli_write_identical_bytes(dataset, command, capsys):
 @pytest.mark.parametrize("command", ["check", "tag"])
 def test_pipeline_missing_and_empty_dataset(tmp_path, command):
     def analyze():
-        return check_dataset(tmp_path) if command == "check" else tag_dataset(tmp_path, "x", SegmentConfig(0.1))
+        return (
+            check_dataset(tmp_path)
+            if command == "check"
+            else tag_dataset(tmp_path, "x", SegmentConfig(0.1))
+        )
 
     with pytest.raises(ValueError, match="missing directory: records"):
         analyze()
@@ -106,7 +140,7 @@ def test_tag_rejects_stale_sidecar(dataset):
 
 def test_gap_record_pipeline_and_cli(dataset, capsys):
     frame, _ = load_record(dataset, "b")
-    frame.loc[len(frame) // 2:, "time"] += 2
+    frame.loc[len(frame) // 2 :, "time"] += 2
     write_record(frame, dataset, "gap", {"x": "m"}, "gap.csv")
     config = SegmentConfig(0.1)
     reports = tag_dataset(dataset, "x", config)
@@ -118,7 +152,10 @@ def test_gap_record_pipeline_and_cli(dataset, capsys):
     assert read_json(path)["channels"]["x"]["message"] == gap.message
     before = path.read_bytes()
     assert main(["tag", "--dataset", str(dataset), "--channel", "x", "--noise-floor", "0.1"]) == 0
-    assert capsys.readouterr().out == "Records tagged: 3.\n"
+    assert (
+        capsys.readouterr().out
+        == "Records processed: 3. Taggable: 2. Not testable: 1.\nSegments written: 2.\n"
+    )
     assert path.read_bytes() == before
     assert verify_dataset(dataset) == []
     build_catalog(dataset)

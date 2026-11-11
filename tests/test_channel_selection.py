@@ -47,7 +47,9 @@ def test_cli_channel_selection_and_override(tmp_path, cli):
     assert main(args) == 0
     data = json.loads((tmp_path / "checks/r.json").read_text())
     assert data["config"]["channels"] == (["x", "missing"] if cli else ["x"])
-    assert {r["channel"] for r in data["checks"]} == ({None, "x", "missing"} if cli else {None, "x"})
+    assert {r["channel"] for r in data["checks"]} == (
+        {None, "x", "missing"} if cli else {None, "x"}
+    )
 
 
 def test_config_channels_are_immutable():

@@ -1,4 +1,5 @@
 import sqlite3
+
 import pytest
 
 from runlog.catalog import _SCHEMA, named_queries, query
@@ -18,10 +19,42 @@ RMS = [
     0.01603,
     0.01425,
 ]
-STARTS = [65.2, 65.8, 66.3, 66.1, 65.8, 66.4, 66.4, 65.7,
-          195.1, 65.7, 65.9, 60.4, 66.0, 65.5, 66.1, 66.3]
-ENDS = [234.5, 234.0, 236.1, 234.0, 233.8, 234.4, 234.3, 234.5,
-        234.2, 234.6, 234.0, 239.7, 234.1, 234.6, 234.1, 234.3]
+STARTS = [
+    65.2,
+    65.8,
+    66.3,
+    66.1,
+    65.8,
+    66.4,
+    66.4,
+    65.7,
+    195.1,
+    65.7,
+    65.9,
+    60.4,
+    66.0,
+    65.5,
+    66.1,
+    66.3,
+]
+ENDS = [
+    234.5,
+    234.0,
+    236.1,
+    234.0,
+    233.8,
+    234.4,
+    234.3,
+    234.5,
+    234.2,
+    234.6,
+    234.0,
+    239.7,
+    234.1,
+    234.6,
+    234.1,
+    234.3,
+]
 
 
 def test_named_queries_demo(demo_dataset):
@@ -40,7 +73,7 @@ def test_named_queries_demo(demo_dataset):
             "vr": round(3 + (i - 1) * 7 / 15, 3),
             "steady_rms_m": rms,
         }
-        for i, rms in zip(CLEAN, RMS)
+        for i, rms in zip(CLEAN, RMS, strict=True)
     ]
 
 
@@ -83,13 +116,11 @@ def test_demo_longest_and_rank(demo_dataset):
         assert row["end_s"] == pytest.approx(ENDS[i])
         assert row["duration_s"] == pytest.approx(ENDS[i] - STARTS[i])
     rows = query(demo_dataset, QUERIES["clean_rms_rank"])
-    order = sorted(zip(CLEAN, RMS), key=lambda item: -item[1])
+    order = sorted(zip(CLEAN, RMS, strict=True), key=lambda item: -item[1])
     assert len(rows) == len(order)
-    for rank, (row, (i, rms)) in enumerate(zip(rows, order), 1):
+    for rank, (row, (i, rms)) in enumerate(zip(rows, order, strict=True), 1):
         assert row["record_id"] == f"run_{i:02d}" and row["channel"] == "sway"
-        assert row["rms_rank"] == rank and row["rms"] == pytest.approx(
-            rms, abs=0.000005
-        )
+        assert row["rms_rank"] == rank and row["rms"] == pytest.approx(rms, abs=0.000005)
 
 
 def test_demo_coverage_and_shares(demo_dataset):
@@ -99,20 +130,16 @@ def test_demo_coverage_and_shares(demo_dataset):
     ]
     for row in rows:
         i = int(row["record_id"][-2:]) - 1
-        duration = 299.9
+        duration = 300.0
         assert row["channel"] == "sway"
         assert row["steady_s"] == pytest.approx(ENDS[i] - STARTS[i])
         assert row["steady_share"] == pytest.approx((ENDS[i] - STARTS[i]) / duration)
     rows = query(demo_dataset, QUERIES["segment_tag_shares"])
-    totals = {"buildup": 382.1, "decay": 381.7, "quiet": 1000.8, "steady": 2445.4}
+    totals = {"buildup": 382.1, "decay": 381.7, "quiet": 1000.8, "steady": 2505.4}
     assert [row["tag"] for row in rows] == list(totals)
     for row in rows:
-        assert row["channel"] == "sway" and row["total_s"] == pytest.approx(
-            totals[row["tag"]]
-        )
-        assert row["time_share"] == pytest.approx(
-            totals[row["tag"]] / sum(totals.values())
-        )
+        assert row["channel"] == "sway" and row["total_s"] == pytest.approx(totals[row["tag"]])
+        assert row["time_share"] == pytest.approx(totals[row["tag"]] / sum(totals.values()))
 
 
 def test_windows_coverage_boundary_and_channel_shares(tmp_path):

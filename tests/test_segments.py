@@ -26,18 +26,18 @@ def test_analytic_envelope():
         "quiet",
     ]
     expected = [(0, 30), (42, 70), (70, 230), (230, 258), (270, 300)]
-    for segment, (start, end) in zip(report.segments, expected):
+    for segment, (start, end) in zip(report.segments, expected, strict=True):
         assert abs(segment.start_s - start) <= config.window_s
         assert abs(segment.end_s - end) <= config.window_s
         assert segment.record_id == "r"
         assert segment.channel == "sway"
         assert segment.method == "rolling_std"
-        assert segment.method_version == 3
+        assert segment.method_version == 4
         assert segment.start_s < segment.end_s
     steady = report.segments[2]
     assert steady.rms == pytest.approx(np.sqrt(2), rel=0.02)
     assert steady.peak_freq_hz == pytest.approx(1.2, abs=0.01)
-    for first, second in zip(report.segments, report.segments[1:]):
+    for first, second in zip(report.segments, report.segments[1:], strict=False):
         assert first.end_s <= second.start_s
     with pytest.raises(FrozenInstanceError):
         steady.tag = "quiet"
@@ -45,9 +45,7 @@ def test_analytic_envelope():
 
 @pytest.mark.parametrize("length", [0, 1, 100])
 def test_short_record(length):
-    report = tag_segments(
-        np.arange(length) * 0.1, np.ones(length), "r", "x", SegmentConfig(0.1)
-    )
+    report = tag_segments(np.arange(length) * 0.1, np.ones(length), "r", "x", SegmentConfig(0.1))
     assert report.status == "not_testable"
     assert report.segments == ()
 
@@ -108,10 +106,7 @@ def test_untestable_input(kind):
         time[20] = np.nan
     else:
         values[20] = np.nan
-    assert (
-        tag_segments(time, values, "r", "x", SegmentConfig(0.1)).status
-        == "not_testable"
-    )
+    assert tag_segments(time, values, "r", "x", SegmentConfig(0.1)).status == "not_testable"
 
 
 def test_mismatched_input():
@@ -138,15 +133,13 @@ def test_repeated_steady_spans():
     assert sum(segment.tag == "steady" for segment in report.segments) == 2
     assert sum(segment.tag == "buildup" for segment in report.segments) == 2
     assert sum(segment.tag == "decay" for segment in report.segments) == 2
-    for first, second in zip(report.segments, report.segments[1:]):
+    for first, second in zip(report.segments, report.segments[1:], strict=False):
         assert first.end_s <= second.start_s
 
 
 def test_large_dip_rejects_buildup():
     time = np.arange(0, 300, 0.05)
-    amplitude = np.interp(
-        time, [0, 30, 50, 55, 70, 230, 270, 300], [0, 0, 1.5, 0.7, 2, 2, 0, 0]
-    )
+    amplitude = np.interp(time, [0, 30, 50, 55, 70, 230, 270, 300], [0, 0, 1.5, 0.7, 2, 2, 0, 0])
     values = amplitude * np.sin(2 * np.pi * 1.2 * time)
     report = tag_segments(time, values, "r", "x", SegmentConfig(0.05, window_s=2))
     assert "steady" in [segment.tag for segment in report.segments]
@@ -155,9 +148,7 @@ def test_large_dip_rejects_buildup():
 
 def test_small_dip_allows_buildup():
     time = np.arange(0, 300, 0.05)
-    amplitude = np.interp(
-        time, [0, 30, 50, 55, 70, 230, 270, 300], [0, 0, 1.5, 1.46, 2, 2, 0, 0]
-    )
+    amplitude = np.interp(time, [0, 30, 50, 55, 70, 230, 270, 300], [0, 0, 1.5, 1.46, 2, 2, 0, 0])
     values = amplitude * np.sin(2 * np.pi * 1.2 * time)
     report = tag_segments(time, values, "r", "x", SegmentConfig(0.05, window_s=2))
     assert "buildup" in [segment.tag for segment in report.segments]
@@ -238,7 +229,7 @@ def test_log_parabolic_peak_frequency(frequency):
     segment = report.segments[0]
     assert segment.end_s - segment.start_s == pytest.approx(300)
     assert segment.peak_freq_hz == pytest.approx(frequency, abs=1e-4)
-    assert segment.method_version == 3
+    assert segment.method_version == 4
 
 
 def test_nyquist_peak_uses_bin_frequency():
@@ -251,7 +242,7 @@ def test_nyquist_peak_uses_bin_frequency():
 @pytest.mark.parametrize("jump,reason", [(2.0, "gap"), (0.025, "sample_rate")])
 def test_invalid_time_spacing_has_no_tags(jump, reason):
     time, values = analytic_signal()
-    time[len(time) // 2:] += jump
+    time[len(time) // 2 :] += jump
     report = tag_segments(time, values, "r", "sway", SegmentConfig(0.05))
     assert report.status == "not_testable"
     assert report.segments == ()

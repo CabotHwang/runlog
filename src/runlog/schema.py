@@ -10,8 +10,10 @@ _RECORD_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 def validate_record_id(record_id: str) -> None:
     """Validate the record identifier."""
     if not isinstance(record_id, str) or not _RECORD_ID.fullmatch(record_id):
-        raise ValueError("record_id must start with a letter or digit and contain "
-                         "1–64 letters, digits, underscores, dots or hyphens")
+        raise ValueError(
+            "record_id must start with a letter or digit and contain "
+            "1–64 letters, digits, underscores, dots or hyphens"
+        )
 
 
 @dataclass(frozen=True)
@@ -52,9 +54,12 @@ class RecordMeta:
             for key, value in self.attrs.items()
         ):
             raise ValueError("attrs must map string keys to scalar values")
-        if not isinstance(self.source, str) or not self.source or any(
-            separator in self.source for separator in ("/", "\\")
-        ) or self.source in (".", ".."):
+        if (
+            not isinstance(self.source, str)
+            or not self.source
+            or any(separator in self.source for separator in ("/", "\\"))
+            or self.source in (".", "..")
+        ):
             raise ValueError("source must be a file name only")
         if type(self.n_samples) is not int or self.n_samples < 0:
             raise ValueError("n_samples must be a non-negative integer")

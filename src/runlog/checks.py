@@ -1,11 +1,17 @@
 from dataclasses import dataclass
+from numbers import Real
 
 import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike, NDArray
 
 from .check_pair import _pair_span, _simpson_spans
-from .check_resolution import _lattice_quantum, _step_resolution
+from .check_resolution import _lattice_quantum, _sample_step, _step_resolution
+
+
+def _finite_number(name: str, value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, Real) or not np.isfinite(value):
+        raise ValueError(f"{name} must be a finite number")
 
 
 @dataclass(frozen=True)
@@ -28,15 +34,59 @@ class CheckConfig:
     derivative_pair_span_s: float | None = None
 
     def __post_init__(self) -> None:
-        if self.channels is not None:
-            object.__setattr__(self, "channels", tuple(self.channels))
-        span = self.derivative_pair_span_s
-        if span is not None and (not np.isfinite(span) or span <= 0):
-            raise ValueError("derivative_pair_span_s must be positive and finite")
+        for name in (
+            "sample_rate_rel_tol",
+            "min_duration_s",
+            "max_flatline_s",
+            "derivative_pair_rel_tol",
+        ):
+            value = getattr(self, name)
+            _finite_number(name, value)
+            if value < 0:
+                raise ValueError(f"{name} must be non-negative")
+        for name in ("spike_z", "expected_rate_hz", "derivative_pair_span_s"):
+            value = getattr(self, name)
+            if value is None and name != "spike_z":
+                continue
+            _finite_number(name, value)
+            if value <= 0:
+                raise ValueError(f"{name} must be positive")
+        for name in ("non_finite_fraction", "clipping_fraction", "resolution_min_fraction"):
+            value = getattr(self, name)
+            _finite_number(name, value)
+            if not 0 <= value <= 1 or (name == "resolution_min_fraction" and value == 0):
+                interval = "(0, 1]" if name == "resolution_min_fraction" else "[0, 1]"
+                raise ValueError(f"{name} must be in {interval}")
+        _finite_number("gap_factor", self.gap_factor)
+        if self.gap_factor <= 1:
+            raise ValueError("gap_factor must be greater than one")
+        if type(self.clipping_min_run) is not int or self.clipping_min_run < 1:
+            raise ValueError("clipping_min_run must be a positive integer")
         for name in ("spike_window", "spike_detrend_window"):
             window = getattr(self, name)
             if type(window) is not int or window < 3 or window % 2 == 0:
                 raise ValueError(f"{name} must be an odd integer of at least 3")
+        self._normalize_selections()
+
+    def _normalize_selections(self) -> None:
+        if self.channels is not None:
+            if not isinstance(self.channels, (tuple, list)) or any(
+                not isinstance(name, str) or not name or name == "time" for name in self.channels
+            ):
+                raise ValueError("channels must be a sequence of non-empty channel names")
+            if len(self.channels) != len(set(self.channels)):
+                raise ValueError("channels must be unique")
+            object.__setattr__(self, "channels", tuple(self.channels))
+        if not isinstance(self.derivative_pairs, (tuple, list)) or any(
+            not isinstance(pair, (tuple, list))
+            or len(pair) != 2
+            or any(not isinstance(name, str) or not name or name == "time" for name in pair)
+            for pair in self.derivative_pairs
+        ):
+            raise ValueError("derivative_pairs must contain pairs of non-empty channel names")
+        object.__setattr__(
+            self, "derivative_pairs", tuple(tuple(pair) for pair in self.derivative_pairs)
+        )
 
 
 @dataclass(frozen=True)
@@ -58,9 +108,7 @@ def _result(
     threshold: float,
     message: str = "",
 ) -> CheckResult:
-    status = (
-        "not_testable" if value is None else ("pass" if value <= threshold else "fail")
-    )
+    status = "not_testable" if value is None else ("pass" if value <= threshold else "fail")
     return CheckResult(
         record_id,
         check,
@@ -99,9 +147,7 @@ def time_monotonic(
     time = np.asarray(time, dtype=float)
     error = "fewer than 2 samples" if len(time) < 2 else ""
     with np.errstate(invalid="ignore"):
-        violations = np.count_nonzero(~np.isfinite(time)) + np.count_nonzero(
-            np.diff(time) <= 0
-        )
+        violations = np.count_nonzero(~np.isfinite(time)) + np.count_nonzero(np.diff(time) <= 0)
     value = None if error else float(violations)
     return _result(record_id, "time_monotonic", None, value, 0.0, error)
 
@@ -120,17 +166,14 @@ def sample_rate(
         deviation = np.abs(regular - median)
         # Exclude floating-point roundoff when inferring timestamp resolution.
         roundoff = 8 * np.finfo(float).eps * max(np.max(np.abs(time)), median)
-        resolution = _step_resolution(
-            deviation, roundoff, config.resolution_min_fraction
-        )
+        resolution = _step_resolution(regular, roundoff, config.resolution_min_fraction)
         if resolution:
             threshold = max(threshold, (resolution + roundoff) / median)
         value = float(np.max(deviation) / median)
         if config.expected_rate_hz is not None:
-            error = (
-                f"expected {config.expected_rate_hz:g} Hz; measured {1 / median:g} Hz"
-            )
-            rate_error = float(abs(median * config.expected_rate_hz - 1))
+            step = _sample_step(time, config.gap_factor)
+            error = f"expected {config.expected_rate_hz:g} Hz; measured {1 / step:g} Hz"
+            rate_error = float(abs(step * config.expected_rate_hz - 1))
             if rate_error > config.sample_rate_rel_tol:
                 return _result(
                     record_id,
@@ -144,24 +187,16 @@ def sample_rate(
     return _result(record_id, "sample_rate", None, value, threshold, error)
 
 
-def gaps(
-    time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()
-) -> CheckResult:
+def gaps(time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()) -> CheckResult:
     """Count time steps above the gap limit."""
     time = np.asarray(time, dtype=float)
     error = _time_error(time)
     dt = np.diff(time)
-    value = (
-        None
-        if error
-        else float(np.count_nonzero(dt > config.gap_factor * np.median(dt)))
-    )
+    value = None if error else float(np.count_nonzero(dt > config.gap_factor * np.median(dt)))
     return _result(record_id, "gaps", None, value, 0.0, error)
 
 
-def duration(
-    time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()
-) -> CheckResult:
+def duration(time: ArrayLike, record_id: str, config: CheckConfig = CheckConfig()) -> CheckResult:
     """Check the minimum record duration."""
     time = np.asarray(time, dtype=float)
     error = ""
@@ -193,9 +228,7 @@ def non_finite(
     values = np.asarray(values, dtype=float)
     error = "fewer than 10 samples" if len(values) < 10 else ""
     value = None if error else float(np.mean(~np.isfinite(values)))
-    return _result(
-        record_id, "non_finite", channel, value, config.non_finite_fraction, error
-    )
+    return _result(record_id, "non_finite", channel, value, config.non_finite_fraction, error)
 
 
 def _runs(mask: NDArray[np.bool_]) -> tuple[NDArray[np.intp], NDArray[np.intp]]:
@@ -234,16 +267,18 @@ def clipping(
             lengths = stops - starts
             count += int(np.sum(lengths[lengths >= config.clipping_min_run]))
         value = float(count / len(values))
-    return _result(
-        record_id, "clipping", channel, value, config.clipping_fraction, error
-    )
+    return _result(record_id, "clipping", channel, value, config.clipping_fraction, error)
 
 
 def _spike_scale(series: pd.Series, residual: pd.Series, window_size: int) -> NDArray:
     median = residual.rolling(window_size, center=True, min_periods=1).median()
-    mad = (residual - median).abs().rolling(
-        window_size, center=True, min_periods=1
-    ).median().to_numpy()
+    mad = (
+        (residual - median)
+        .abs()
+        .rolling(window_size, center=True, min_periods=1)
+        .median()
+        .to_numpy()
+    )
     window = series.rolling(window_size, center=True, min_periods=1)
     curvature_scale = (window.quantile(0.75) - window.quantile(0.25)).to_numpy() / 1.349
     scale = np.maximum(1.4826 * mad, curvature_scale)
@@ -268,9 +303,10 @@ def spikes(
     if not error:
         # A seven-sample median follows curvature and rejects a three-sample impulse.
         series = pd.Series(np.diff(values, n=2))
-        residual = series - series.rolling(
-            config.spike_detrend_window, center=True, min_periods=1
-        ).median()
+        residual = (
+            series
+            - series.rolling(config.spike_detrend_window, center=True, min_periods=1).median()
+        )
         # A curvature IQR floor avoids zero MAD on sparse median residuals.
         scale = _spike_scale(series, residual, config.spike_window)
         quantum = _lattice_quantum(values)
@@ -283,8 +319,7 @@ def spikes(
             error = "median absolute deviation is zero"
         else:
             score = np.divide(
-                np.abs(residual), scale,
-                out=np.where(residual == 0, 0.0, np.inf), where=scale > 0
+                np.abs(residual), scale, out=np.where(residual == 0, 0.0, np.inf), where=scale > 0
             )
             value = float(len(_runs(score > config.spike_z)[0]))
     return _result(record_id, "spikes", channel, value, 0.0, error)
@@ -304,11 +339,7 @@ def derivative_pair(
         np.asarray(position, dtype=float),
         np.asarray(velocity, dtype=float),
     )
-    error = (
-        _time_error(time)
-        or _values_error(position, constant=True)
-        or _values_error(velocity)
-    )
+    error = _time_error(time) or _values_error(position, constant=True) or _values_error(velocity)
     if not error and (
         sample_rate(time, record_id, config).status != "pass"
         or gaps(time, record_id, config).status != "pass"
@@ -316,7 +347,7 @@ def derivative_pair(
         error = "uniform sampling is required"
     value = None
     if not error:
-        dt = np.median(np.diff(time))
+        dt = _sample_step(time, config.gap_factor)
         steps = _pair_span(position, dt, config.derivative_pair_span_s)
         error = f"span {steps} steps ({steps * dt:g} s)"
         if len(time) - 1 < 4 * steps:
@@ -345,8 +376,7 @@ def _channel_checks(
     checks = ("non_finite", "flatline", "clipping", "spikes")
     if channel not in frame or channel == "time":
         return [
-            CheckResult(record_id, name, channel, "not_testable", None, None,
-                        "channel is missing")
+            CheckResult(record_id, name, channel, "not_testable", None, None, "channel is missing")
             for name in checks
         ]
     values = frame[channel].to_numpy(dtype=float)
@@ -366,8 +396,7 @@ def run_checks(
         raise ValueError("missing column: time")
     time = frame["time"].to_numpy(dtype=float)
     results = [
-        check(time, record_id, config)
-        for check in (time_monotonic, sample_rate, gaps, duration)
+        check(time, record_id, config) for check in (time_monotonic, sample_rate, gaps, duration)
     ]
     channels = frame.columns.drop("time") if config.channels is None else config.channels
     for channel in channels:
@@ -388,8 +417,6 @@ def run_checks(
             )
         else:
             results.append(
-                derivative_pair(
-                    time, frame[position], frame[velocity], record_id, position, config
-                )
+                derivative_pair(time, frame[position], frame[velocity], record_id, position, config)
             )
     return results

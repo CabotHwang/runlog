@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike, NDArray
 
+from .check_resolution import _sample_step
 from .checks import gaps, sample_rate
 
 
@@ -39,7 +40,7 @@ class Segment:
     rms: float
     peak_freq_hz: float | None
     method: str = "rolling_std"
-    method_version: int = 3
+    method_version: int = 4
 
 
 @dataclass(frozen=True)
@@ -51,28 +52,20 @@ class SegmentReport:
 
 def _runs(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
     edges = np.diff(np.r_[False, mask, False].astype(int))
-    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
+    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True))
 
 
 def _rolling_std(values: NDArray[np.float64], window: int) -> NDArray[np.float64]:
-    return (
-        pd.Series(values)
-        .rolling(window, center=True, min_periods=1)
-        .std(ddof=0)
-        .to_numpy()
-    )
+    return pd.Series(values).rolling(window, center=True, min_periods=1).std(ddof=0).to_numpy()
 
 
 def _steady_intervals(
     envelope: NDArray[np.float64], edges: NDArray[np.float64], config: SegmentConfig
 ) -> list[tuple[int, int]]:
-    width = max(1, int(np.ceil(config.min_steady_s / np.median(np.diff(edges)))))
+    width = max(1, int(np.ceil(config.min_steady_s / _sample_step(edges))))
     rolling = pd.Series(envelope).rolling(width, min_periods=width)
     median = rolling.median().to_numpy()
-    flat = (
-        rolling.max().to_numpy() - rolling.min().to_numpy()
-        <= 2 * config.rel_tol * median
-    )
+    flat = rolling.max().to_numpy() - rolling.min().to_numpy() <= 2 * config.rel_tol * median
     ends = np.flatnonzero(flat & (median >= config.noise_floor)) + 1
     coverage = np.zeros(len(envelope) + 1, dtype=int)
     np.add.at(coverage, ends - width, 1)
@@ -150,15 +143,9 @@ def _make_segment(
     span = values[start:stop] - np.mean(values[start:stop])
     rms = float(np.sqrt(np.mean(span**2)))
     frequency = None
-    if (
-        edges[stop] - edges[start] >= config.window_s
-        and len(span) >= 2
-        and np.ptp(span) > 0
-    ):
-        frequency = _peak_frequency(span, float(np.median(np.diff(time))))
-    return Segment(
-        record_id, channel, float(edges[start]), float(edges[stop]), tag, rms, frequency
-    )
+    if edges[stop] - edges[start] >= config.window_s and len(span) >= 2 and np.ptp(span) > 0:
+        frequency = _peak_frequency(span, _sample_step(time))
+    return Segment(record_id, channel, float(edges[start]), float(edges[stop]), tag, rms, frequency)
 
 
 def tag_segments(
@@ -171,9 +158,7 @@ def tag_segments(
     """Tag quiet, steady, buildup and decay intervals from a rolling standard deviation envelope."""
     time, values = np.asarray(time, dtype=float), np.asarray(values, dtype=float)
     if time.ndim != 1 or values.ndim != 1 or len(time) != len(values):
-        raise ValueError(
-            "time and values must be one-dimensional arrays of equal length"
-        )
+        raise ValueError("time and values must be one-dimensional arrays of equal length")
     if len(time) < 2 or not np.isfinite(time).all() or not np.isfinite(values).all():
         return SegmentReport("not_testable", (), "fewer than 2 samples or non-finite data")
     if np.any(np.diff(time) <= 0):
@@ -184,8 +169,10 @@ def tag_segments(
         return SegmentReport("not_testable", (), "time has a gap above 3 times the median step")
     spacing = sample_rate(time, record_id)
     if spacing.status != "pass":
-        return SegmentReport("not_testable", (), f"non-uniform sample spacing (sample_rate): {spacing.message}")
-    dt = float(np.median(np.diff(time)))
+        return SegmentReport(
+            "not_testable", (), f"non-uniform sample spacing (sample_rate): {spacing.message}"
+        )
+    dt = _sample_step(time)
     window = min(len(time), max(1, round(config.window_s / dt)))
     envelope = _rolling_std(values, window)
     edges = np.r_[time, time[-1] + dt]

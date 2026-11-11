@@ -6,14 +6,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from runlog import (CheckConfig, SegmentConfig, __version__, build_catalog,
-                    sha256_file, verify_dataset, write_record)
+from runlog import (
+    CheckConfig,
+    SegmentConfig,
+    __version__,
+    build_catalog,
+    sha256_file,
+    verify_dataset,
+    write_record,
+)
 from runlog.cli import main
 
 
 def make_record(dataset):
-    return write_record(pd.DataFrame({"time": [0, 1], "x": [1, 2]}), dataset,
-                        "r", {"x": "m"}, "r.csv")
+    return write_record(
+        pd.DataFrame({"time": [0, 1], "x": [1, 2]}), dataset, "r", {"x": "m"}, "r.csv"
+    )
 
 
 def test_hash_chunks(tmp_path):
@@ -27,14 +35,22 @@ def test_valid_and_extra(tmp_path):
     meta = make_record(tmp_path)
     for folder in ("checks", "segments"):
         (tmp_path / folder).mkdir()
-        report = ({"checks": [], "runlog_version": __version__, "config": asdict(CheckConfig())}
-                  if folder == "checks" else {"channels": {}})
-        (tmp_path / folder / "r.json").write_text(json.dumps({"record_sha256": meta.sha256, **report}))
+        report = (
+            {"checks": [], "runlog_version": __version__, "config": asdict(CheckConfig())}
+            if folder == "checks"
+            else {"channels": {}}
+        )
+        (tmp_path / folder / "r.json").write_text(
+            json.dumps({"record_sha256": meta.sha256, **report})
+        )
     (tmp_path / "catalog.sqlite").touch()
     assert verify_dataset(tmp_path) == []
     (tmp_path / "records/extra.txt").touch()
     (tmp_path / "checks/unknown.json").touch()
-    assert verify_dataset(tmp_path) == ["extra file: checks/unknown.json", "extra file: records/extra.txt"]
+    assert verify_dataset(tmp_path) == [
+        "extra file: checks/unknown.json",
+        "extra file: records/extra.txt",
+    ]
 
 
 @pytest.mark.parametrize("extension", ["parquet", "json"])
@@ -54,7 +70,9 @@ def test_hash_mismatch(tmp_path):
     assert verify_dataset(tmp_path) == ["hash mismatch: records/r.parquet"]
 
 
-@pytest.mark.parametrize("change", [{"schema_version": 99}, {"record_id": "other"}, {"source": "/bad/path"}])
+@pytest.mark.parametrize(
+    "change", [{"schema_version": 99}, {"record_id": "other"}, {"source": "/bad/path"}]
+)
 def test_bad_sidecar(tmp_path, change):
     make_record(tmp_path)
     path = tmp_path / "records/r.json"
@@ -104,17 +122,54 @@ def test_old_reports_rejected_after_reingest(tmp_path, make_test_record, folder)
     assert main(["index", *base]) == 2
 
 
-@pytest.mark.parametrize("folder,payload", [
-    ("checks", []), ("checks", {"checks": {}}), ("checks", {"checks": [{}]}),
-    ("checks", {"checks": [{"record_id": "other", "check": "duration", "channel": None,
-        "status": "bad", "value": 0, "threshold": 10, "message": "bad"}]}),
-    ("segments", {"channels": []}),
-    ("segments", {"channels": {"x": {"status": "bad", "segments": []}}}),
-    ("segments", {"channels": {"x": {"status": "ok", "segments": [{}]}}}),
-    ("segments", {"channels": {"x": {"status": "ok", "segments": [{"record_id": "r",
-        "channel": "y", "start_s": 0, "end_s": 10, "tag": "quiet", "rms": 0,
-        "peak_freq_hz": None}]}}}),
-])
+@pytest.mark.parametrize(
+    "folder,payload",
+    [
+        ("checks", []),
+        ("checks", {"checks": {}}),
+        ("checks", {"checks": [{}]}),
+        (
+            "checks",
+            {
+                "checks": [
+                    {
+                        "record_id": "other",
+                        "check": "duration",
+                        "channel": None,
+                        "status": "bad",
+                        "value": 0,
+                        "threshold": 10,
+                        "message": "bad",
+                    }
+                ]
+            },
+        ),
+        ("segments", {"channels": []}),
+        ("segments", {"channels": {"x": {"status": "bad", "segments": []}}}),
+        ("segments", {"channels": {"x": {"status": "ok", "segments": [{}]}}}),
+        (
+            "segments",
+            {
+                "channels": {
+                    "x": {
+                        "status": "ok",
+                        "segments": [
+                            {
+                                "record_id": "r",
+                                "channel": "y",
+                                "start_s": 0,
+                                "end_s": 10,
+                                "tag": "quiet",
+                                "rms": 0,
+                                "peak_freq_hz": None,
+                            }
+                        ],
+                    }
+                }
+            },
+        ),
+    ],
+)
 def test_invalid_analysis_is_reported(tmp_path, make_test_record, folder, payload):
     meta = make_test_record(tmp_path)
     if isinstance(payload, dict):

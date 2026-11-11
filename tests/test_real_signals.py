@@ -52,7 +52,7 @@ def test_d3_offset_buildup_preserves_quiet():
         span = values[(time >= segment.start_s) & (time < segment.end_s)]
         assert segment.rms == pytest.approx(np.sqrt(np.mean((span - span.mean()) ** 2)))
         assert segment.method == "rolling_std"
-        assert segment.method_version == 3
+        assert segment.method_version == 4
 
 
 def test_d4_modulation_preserves_transitions():
@@ -68,10 +68,15 @@ def test_clean_and_small_modulation_keep_previous_boundaries(modulation, start, 
     config = SegmentConfig(0.005)
     report = tag_segments(time, values, "r", "x", config)
     # Boundaries measured with version 1 before this change.
-    expected = [("quiet", 0, 91.3), ("buildup", buildup, start),
-                ("steady", start, 456.3), ("decay", 456.3, 492.0), ("quiet", 508.9, 600)]
+    expected = [
+        ("quiet", 0, 91.3),
+        ("buildup", buildup, start),
+        ("steady", start, 456.3),
+        ("decay", 456.3, 492.0),
+        ("quiet", 508.9, 600),
+    ]
     assert [s.tag for s in report.segments] == [tag for tag, _, _ in expected]
-    for segment, (_, old_start, old_end) in zip(report.segments, expected):
+    for segment, (_, old_start, old_end) in zip(report.segments, expected, strict=True):
         assert abs(segment.start_s - old_start) <= config.window_s
         assert abs(segment.end_s - old_end) <= config.window_s
 

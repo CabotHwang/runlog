@@ -8,8 +8,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from runlog import (SegmentConfig, __version__, build_catalog, load_record, query,
-                    time_monotonic, verify_dataset, write_record)
+from runlog import (
+    SegmentConfig,
+    __version__,
+    build_catalog,
+    load_record,
+    query,
+    time_monotonic,
+    verify_dataset,
+    write_record,
+)
 from runlog.cli import main
 
 
@@ -29,13 +37,15 @@ def test_full_cli(tmp_path, capsys):
     assert main(["check", *base]) == 0
     config = tmp_path / "segments.json"
     config.write_text('{"window_s":2,"min_steady_s":5}')
-    assert main(["tag", *base, "--channel", "x", "--noise-floor", "0.1", "--config", str(config)]) == 0
+    assert (
+        main(["tag", *base, "--channel", "x", "--noise-floor", "0.1", "--config", str(config)]) == 0
+    )
     assert main(["verify", *base]) == 0
     assert main(["index", *base]) == 0
     output = capsys.readouterr().out
     assert "Records ingested: 1." in output
-    assert "Records checked: 1. Failed checks: 0." in output
-    assert "Records tagged: 1." in output
+    assert "Records checked: 1. Checks: 8 pass, 0 fail, 0 not testable." in output
+    assert "Records processed: 1. Taggable: 1. Not testable: 0." in output
     for output in ("json", "csv", "table"):
         assert main(["query", *base, "SELECT record_id FROM records", "--format", output]) == 0
         text = capsys.readouterr().out
@@ -57,8 +67,46 @@ def test_check_fail_and_config(tmp_path):
     assert main(["check", "--dataset", str(dataset), "--config", str(config)]) == 1
 
 
-@pytest.mark.parametrize("args", [[], ["bad"], ["ingest"], ["query", "--dataset", "none", "bad sql"],
-                                  ["check", "--dataset", "none"], ["--help"]])
+def test_check_summary_exposes_untestable_results(tmp_path, make_test_record, capsys):
+    make_test_record(tmp_path)
+    assert main(["check", "--dataset", str(tmp_path), "--channels", "missing"]) == 0
+    assert capsys.readouterr().out == (
+        "Records checked: 1. Checks: 4 pass, 0 fail, 4 not testable.\n"
+    )
+
+
+def test_tag_summary_exposes_missing_channel(tmp_path, make_test_record, capsys):
+    make_test_record(tmp_path)
+    assert (
+        main(["tag", "--dataset", str(tmp_path), "--channel", "missing", "--noise-floor", "0.1"])
+        == 0
+    )
+    assert capsys.readouterr().out == (
+        "Records processed: 1. Taggable: 0. Not testable: 1.\nSegments written: 0.\n"
+    )
+
+
+def test_taggable_summary_does_not_imply_segments(tmp_path, capsys):
+    time = np.arange(0, 60, 0.05)
+    frame = pd.DataFrame({"time": time, "x": (1 + time / 5) * np.sin(2 * np.pi * time)})
+    write_record(frame, tmp_path, "growing", {"x": "m"}, "synthetic.csv")
+    assert main(["tag", "--dataset", str(tmp_path), "--channel", "x", "--noise-floor", "0.01"]) == 0
+    assert capsys.readouterr().out == (
+        "Records processed: 1. Taggable: 1. Not testable: 0.\nSegments written: 0.\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        [],
+        ["bad"],
+        ["ingest"],
+        ["query", "--dataset", "none", "bad sql"],
+        ["check", "--dataset", "none"],
+        ["--help"],
+    ],
+)
 def test_usage_and_data_errors(args):
     assert main(args) == (0 if args == ["--help"] else 2)
 
@@ -76,8 +124,12 @@ def test_openfast_cli_and_bad_json(tmp_path):
 
 
 def test_module_entrypoint():
-    result = subprocess.run([sys.executable, "-m", "runlog", "--help"],
-                            env=os.environ | {"PYTHONPATH": "src"}, capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "runlog", "--help"],
+        env=os.environ | {"PYTHONPATH": "src"},
+        capture_output=True,
+        text=True,
+    )
     assert result.returncode == 0
     assert "ingest" in result.stdout
 
@@ -94,7 +146,7 @@ def test_export_cli_environment_and_replace(demo_dataset, tmp_path, monkeypatch,
     monkeypatch.setenv("RUNLOG_DB_URL", first)
     assert main(base) == 0
     output = capsys.readouterr().out
-    assert all(value in output for value in ("records", "checks", "segments", "16", "320", "76"))
+    assert all(value in output for value in ("records", "checks", "segments", "16", "320", "78"))
     assert main(base) == 2
     assert "exist" in capsys.readouterr().err
     assert main([*base, "--replace"]) == 0
@@ -106,7 +158,9 @@ def test_export_cli_environment_and_replace(demo_dataset, tmp_path, monkeypatch,
 
 def test_export_cli_masks_errors(demo_dataset, monkeypatch, capsys):
     from uuid import uuid4
+
     from sqlalchemy.exc import SQLAlchemyError
+
     import runlog.export as module
 
     secret = uuid4().hex
@@ -115,8 +169,18 @@ def test_export_cli_masks_errors(demo_dataset, monkeypatch, capsys):
         raise SQLAlchemyError(secret)
 
     monkeypatch.setattr(module, "create_engine", fail)
-    assert main(["export", "--dataset", str(demo_dataset), "--url",
-                 f"mysql+pymysql://root:{secret}@localhost/runlog"]) == 2
+    assert (
+        main(
+            [
+                "export",
+                "--dataset",
+                str(demo_dataset),
+                "--url",
+                f"mysql+pymysql://root:{secret}@localhost/runlog",
+            ]
+        )
+        == 2
+    )
     output = capsys.readouterr()
     assert secret not in output.out + output.err and "***" in output.err
 
@@ -138,9 +202,18 @@ def test_named_query_cli(demo_dataset, capsys):
         assert json.loads(capsys.readouterr().out) == query(demo_dataset, sql)
 
 
-@pytest.mark.parametrize("options", [[], ["--file", "examples/queries.sql"], ["--name", "a"],
-    ["SELECT 1", "--name", "a"], ["SELECT 1", "--file", "examples/queries.sql", "--name", "a"],
-    ["--file", "examples/queries.sql", "--name", "missing"], ["--file", "absent.sql", "--name", "a"]])
+@pytest.mark.parametrize(
+    "options",
+    [
+        [],
+        ["--file", "examples/queries.sql"],
+        ["--name", "a"],
+        ["SELECT 1", "--name", "a"],
+        ["SELECT 1", "--file", "examples/queries.sql", "--name", "a"],
+        ["--file", "examples/queries.sql", "--name", "missing"],
+        ["--file", "absent.sql", "--name", "a"],
+    ],
+)
 def test_named_query_cli_errors(demo_dataset, options):
     assert main(["query", "--dataset", str(demo_dataset), *options]) == 2
 
@@ -172,27 +245,46 @@ def test_tag_keeps_other_channels_and_skips_missing(tmp_path, make_test_record):
     assert data["channels"]["x"] == first
     assert data["channels"]["y"]["status"] == "ok"
     missing = json.loads((tmp_path / "segments/a.json").read_text(encoding="utf-8"))
-    assert missing["channels"]["y"] == {"status": "not_testable", "segments": [], "message": "",
-        "runlog_version": __version__, "config": asdict(SegmentConfig(0.1))}
+    assert missing["channels"]["y"] == {
+        "status": "not_testable",
+        "segments": [],
+        "message": "",
+        "runlog_version": __version__,
+        "config": asdict(SegmentConfig(0.1)),
+    }
     assert main([*base, "x"]) == 0
     build_catalog(tmp_path)
-    assert {row["channel"] for row in query(tmp_path, "SELECT DISTINCT channel FROM segments")} == {"x", "y"}
+    assert {row["channel"] for row in query(tmp_path, "SELECT DISTINCT channel FROM segments")} == {
+        "x",
+        "y",
+    }
     assert verify_dataset(tmp_path) == []
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
 @pytest.mark.parametrize("mode", ["stem", "parent"])
 def test_ingest_duplicate_ids_before_writes(tmp_path, capsys, overwrite, mode):
-    paths = ([tmp_path / "one/r.csv", tmp_path / "two/r.csv"] if mode == "stem" else
-             [tmp_path / "one/a.csv", tmp_path / "one/b.csv"])
+    paths = (
+        [tmp_path / "one/r.csv", tmp_path / "two/r.csv"]
+        if mode == "stem"
+        else [tmp_path / "one/a.csv", tmp_path / "one/b.csv"]
+    )
     for path in paths:
         path.parent.mkdir(exist_ok=True)
         path.write_text("time,x\n0,1\n1,2\n", encoding="utf-8")
     units = tmp_path / "units.json"
     units.write_text('{"x":"m"}', encoding="utf-8")
     dataset = tmp_path / "dataset"
-    args = ["ingest", *map(str, paths), "--units", str(units), "--dataset", str(dataset),
-            "--id-from", mode]
+    args = [
+        "ingest",
+        *map(str, paths),
+        "--units",
+        str(units),
+        "--dataset",
+        str(dataset),
+        "--id-from",
+        mode,
+    ]
     assert main(args + (["--overwrite"] if overwrite else [])) == 2
     assert "duplicate record" in capsys.readouterr().err
     assert not dataset.exists()
@@ -206,8 +298,21 @@ def test_bad_json_object_is_cli_data_error(tmp_path, capsys, content):
     attrs.write_text(content, encoding="utf-8")
     units = tmp_path / "units.json"
     units.write_text('{"x":"m"}', encoding="utf-8")
-    assert main(["ingest", str(csv), "--dataset", str(tmp_path / "data"),
-                 "--units", str(units), "--attrs", str(attrs)]) == 2
+    assert (
+        main(
+            [
+                "ingest",
+                str(csv),
+                "--dataset",
+                str(tmp_path / "data"),
+                "--units",
+                str(units),
+                "--attrs",
+                str(attrs),
+            ]
+        )
+        == 2
+    )
     assert capsys.readouterr().err.startswith("runlog: ")
 
 
@@ -243,14 +348,29 @@ def test_ingest_ids_and_attribute_priority(tmp_path, mode):
         path.write_text("time,x\n0,1\n1,2\n", encoding="utf-8")
     ids = [p.parent.name if mode == "parent" else p.stem for p in paths]
     attrs = tmp_path / "attrs.json"
-    attrs.write_text(json.dumps({ids[0]: {"source": "id"},
-                                paths[0].name: {"source": "file"},
-                                paths[1].name: {"source": "fallback"}}), encoding="utf-8")
+    attrs.write_text(
+        json.dumps(
+            {
+                ids[0]: {"source": "id"},
+                paths[0].name: {"source": "file"},
+                paths[1].name: {"source": "fallback"},
+            }
+        ),
+        encoding="utf-8",
+    )
     units = tmp_path / "units.json"
     units.write_text('{"x":"m"}', encoding="utf-8")
     dataset = tmp_path / "dataset"
-    args = ["ingest", *map(str, paths), "--units", str(units), "--attrs", str(attrs),
-            "--dataset", str(dataset)]
+    args = [
+        "ingest",
+        *map(str, paths),
+        "--units",
+        str(units),
+        "--attrs",
+        str(attrs),
+        "--dataset",
+        str(dataset),
+    ]
     assert main(args + (["--id-from", mode] if mode else [])) == 0
     assert load_record(dataset, ids[0])[1].attrs == {"source": "id"}
     assert load_record(dataset, ids[1])[1].attrs == {"source": "fallback"}
@@ -266,8 +386,7 @@ def test_ingest_parent_ids_accept_shared_file_name(tmp_path):
         path.parent.mkdir()
         path.write_text("Time X\n(s) (m)\n0 1\n1 2\n", encoding="utf-8")
     dataset = tmp_path / "dataset"
-    assert main(["ingest", *map(str, paths), "--id-from", "parent",
-                 "--dataset", str(dataset)]) == 0
+    assert main(["ingest", *map(str, paths), "--id-from", "parent", "--dataset", str(dataset)]) == 0
     assert load_record(dataset, "one")[1].source == "shared.out"
     assert load_record(dataset, "two")[1].source == "shared.out"
 

@@ -3,8 +3,21 @@ from contextlib import closing
 from pathlib import Path
 from urllib.parse import quote
 
-from sqlalchemy import (Column, Double, ForeignKey, Index, Integer, MetaData,
-                        String, Table, Text, create_engine, func, inspect, select)
+from sqlalchemy import (
+    Column,
+    Double,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    create_engine,
+    func,
+    inspect,
+    select,
+)
 from sqlalchemy.engine import Connection, Engine, make_url
 
 
@@ -18,22 +31,57 @@ def _record_id(primary_key: bool = False) -> Column:
 
 def _schema() -> MetaData:
     metadata = MetaData()
-    Table("records", metadata, Column("record_id", String(64), primary_key=True),
-          Column("n_samples", Integer), Column("duration_s", Double),
-          Column("sample_rate_hz", Double), Column("sha256", String(64)), Column("source", String(255)))
-    Table("channels", metadata, _record_id(True), Column("name", String(128), primary_key=True),
-          Column("unit", String(64)))
-    attrs = Table("attrs", metadata, _record_id(True),
-                  Column("key", String(128), primary_key=True), Column("value_num", Double),
-                  Column("value_text", Text))
-    checks = Table("checks", metadata, Column("check_id", Integer, primary_key=True, autoincrement=True),
-                   _record_id(), Column("check_name", String(128)), Column("channel", String(128)),
-                   Column("status", String(32)), Column("value", Double), Column("threshold", Double),
-                   Column("message", Text))
-    segments = Table("segments", metadata, Column("segment_id", Integer, primary_key=True),
-                     _record_id(), Column("channel", String(128)), Column("start_s", Double),
-                     Column("end_s", Double), Column("tag", String(32)), Column("method", String(128)),
-                     Column("method_version", Integer), Column("rms", Double), Column("peak_freq_hz", Double))
+    Table(
+        "records",
+        metadata,
+        Column("record_id", String(64), primary_key=True),
+        Column("n_samples", Integer),
+        Column("duration_s", Double),
+        Column("sample_rate_hz", Double),
+        Column("sha256", String(64)),
+        Column("source", String(255)),
+    )
+    Table(
+        "channels",
+        metadata,
+        _record_id(True),
+        Column("name", String(128), primary_key=True),
+        Column("unit", String(64)),
+    )
+    attrs = Table(
+        "attrs",
+        metadata,
+        _record_id(True),
+        Column("key", String(128), primary_key=True),
+        Column("value_num", Double),
+        Column("value_text", Text),
+    )
+    checks = Table(
+        "checks",
+        metadata,
+        Column("check_id", Integer, primary_key=True, autoincrement=True),
+        _record_id(),
+        Column("check_name", String(128)),
+        Column("channel", String(128)),
+        Column("status", String(32)),
+        Column("value", Double),
+        Column("threshold", Double),
+        Column("message", Text),
+    )
+    segments = Table(
+        "segments",
+        metadata,
+        Column("segment_id", Integer, primary_key=True),
+        _record_id(),
+        Column("channel", String(128)),
+        Column("start_s", Double),
+        Column("end_s", Double),
+        Column("tag", String(32)),
+        Column("method", String(128)),
+        Column("method_version", Integer),
+        Column("rms", Double),
+        Column("peak_freq_hz", Double),
+    )
     Index("checks_record_status", checks.c.record_id, checks.c.status)
     Index("segments_tag", segments.c.tag)
     Index("attrs_key_num", attrs.c.key, attrs.c.value_num)
@@ -91,7 +139,9 @@ def export_catalog(dataset: str | Path, url: str, replace: bool = False) -> dict
         if parsed.password:
             message = message.replace(quote(parsed.password, safe=""), "***")
             message = message.replace(parsed.password, "***")
-        raise RuntimeError(f"catalog export failed for {safe_url}: {type(exc).__name__}: {message}") from None
+        raise RuntimeError(
+            f"catalog export failed for {safe_url}: {type(exc).__name__}: {message}"
+        ) from None
     finally:
         if engine is not None:
             engine.dispose()

@@ -2,9 +2,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-def _step_resolution(
-    deviation: NDArray[np.float64], roundoff: float, min_fraction: float
-) -> float:
+def _step_resolution(steps: NDArray[np.float64], roundoff: float, min_fraction: float) -> float:
+    deviation = np.abs(steps - np.median(steps))
     nonzero = np.sort(deviation[deviation > roundoff])
     if not len(nonzero):
         return 0.0
@@ -12,7 +11,21 @@ def _step_resolution(
     starts = np.r_[0, np.flatnonzero(np.diff(nonzero) > roundoff) + 1]
     counts = np.diff(np.r_[starts, len(nonzero)])
     repeated = nonzero[starts[counts >= min_fraction * len(deviation)]]
-    return float(repeated[0]) if len(repeated) else 0.0
+    if not len(repeated):
+        return 0.0
+    resolution = float(repeated[0])
+    # Quantization stays near one uniform clock; a sustained rate change drifts away.
+    elapsed = np.r_[0.0, np.cumsum(steps)]
+    grid = np.arange(len(elapsed)) * np.mean(steps)
+    if np.ptp(elapsed - grid) > 2 * resolution + roundoff:
+        return 0.0
+    return resolution
+
+
+def _sample_step(time: NDArray[np.float64], gap_factor: float = 3.0) -> float:
+    steps = np.diff(time)
+    regular = steps[steps <= gap_factor * np.median(steps)]
+    return float(np.mean(regular))
 
 
 def _lattice_quantum(values: NDArray[np.float64]) -> float:

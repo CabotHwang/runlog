@@ -17,12 +17,14 @@ def test_export_rows_schema_and_source_unchanged(demo_dataset, tmp_path):
     before = (demo_dataset / "catalog.sqlite").read_bytes()
     url = f"sqlite:///{tmp_path / 'target.sqlite'}"
     counts = export_catalog(demo_dataset, url)
-    assert counts == {"records": 16, "attrs": 48, "channels": 64, "checks": 320, "segments": 76}
+    assert counts == {"records": 16, "attrs": 48, "channels": 64, "checks": 320, "segments": 78}
     engine = create_engine(url)
     with engine.connect() as connection:
         inspector = inspect(connection)
         for name, count in counts.items():
-            rows = [dict(row) for row in connection.execute(text(f"SELECT * FROM {name}")).mappings()]
+            rows = [
+                dict(row) for row in connection.execute(text(f"SELECT * FROM {name}")).mappings()
+            ]
             assert len(rows) == count
             for row in rows:
                 row.pop("check_id", None)
@@ -32,7 +34,10 @@ def test_export_rows_schema_and_source_unchanged(demo_dataset, tmp_path):
             if name != "records":
                 assert inspector.get_foreign_keys(name)[0]["referred_table"] == "records"
         assert inspector.get_pk_constraint("checks")["constrained_columns"] == ["check_id"]
-        assert inspector.get_pk_constraint("channels")["constrained_columns"] == ["record_id", "name"]
+        assert inspector.get_pk_constraint("channels")["constrained_columns"] == [
+            "record_id",
+            "name",
+        ]
         assert inspector.get_indexes("segments")[0]["column_names"] == ["tag"]
         checks_index = inspector.get_indexes("checks")[0]
         assert checks_index["name"] == "checks_record_status"
@@ -74,8 +79,10 @@ def test_batches_and_null_values(demo_dataset, tmp_path):
     with sqlite3.connect(demo_dataset / "catalog.sqlite") as original:
         with sqlite3.connect(source / "catalog.sqlite") as copied:
             original.backup(copied)
-            copied.executemany("INSERT INTO checks(record_id, check_name) VALUES (?, ?)",
-                               [("run_01", "extra")] * 1201)
+            copied.executemany(
+                "INSERT INTO checks(record_id, check_name) VALUES (?, ?)",
+                [("run_01", "extra")] * 1201,
+            )
     url = f"sqlite:///{tmp_path / 'target.sqlite'}"
     assert export_catalog(source, url)["checks"] == 1521
     engine = create_engine(url)
@@ -132,9 +139,19 @@ def test_password_masked_in_errors(demo_dataset, monkeypatch, caplog):
 
 def test_mysql_schema_compiles():
     metadata = _schema()
-    expected = {"record_id": 64, "name": 128, "unit": 64, "key": 128, "channel": 128,
-                "check_name": 128, "tag": 32, "status": 32, "sha256": 64, "source": 255,
-                "method": 128}
+    expected = {
+        "record_id": 64,
+        "name": 128,
+        "unit": 64,
+        "key": 128,
+        "channel": 128,
+        "check_name": 128,
+        "tag": 32,
+        "status": 32,
+        "sha256": 64,
+        "source": 255,
+        "method": 128,
+    }
     for table in metadata.tables.values():
         ddl = str(CreateTable(table).compile(dialect=mysql.dialect()))
         for column in table.columns:

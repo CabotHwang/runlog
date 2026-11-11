@@ -81,9 +81,7 @@ def test_missing_provenance_names_field(tmp_path, command, field):
     errors = verify_dataset(dataset)
     assert len(errors) == 1
     assert f"{path.parent.name}/r.json" in errors[0]
-    assert errors == [
-        f"invalid analysis sidecar: {path.parent.name}/r.json: missing field {field}"
-    ]
+    assert errors == [f"invalid analysis sidecar: {path.parent.name}/r.json: missing field {field}"]
     assert main(["verify", "--dataset", str(dataset)]) == 1
     assert main(["index", "--dataset", str(dataset)]) == 2
 

@@ -79,8 +79,7 @@ def test_channel_checks_pass(check):
     [
         (non_finite, np.r_[np.arange(100), np.nan, np.inf, -np.inf]),
         (clipping, np.clip(np.sin(np.arange(200) * 0.13), -0.5, 0.5)),
-        (spikes, np.r_[np.sin(np.arange(100) * 0.13), 100,
-                        np.sin(np.arange(100) * 0.13)]),
+        (spikes, np.r_[np.sin(np.arange(100) * 0.13), 100, np.sin(np.arange(100) * 0.13)]),
     ],
 )
 def test_channel_checks_fail(check, values):
@@ -130,10 +129,7 @@ def test_resolution_requires_five_percent_of_regular_steps(count, status):
     steps[::20][:count] += 0.001
     time = np.r_[0, np.cumsum(steps)]
     assert sample_rate(time, "r").status == status
-    assert (
-        sample_rate(time, "r", CheckConfig(resolution_min_fraction=0.06)).status
-        == "fail"
-    )
+    assert sample_rate(time, "r", CheckConfig(resolution_min_fraction=0.06)).status == "fail"
 
 
 @pytest.mark.parametrize("expected,status", [(50, "fail"), (100, "pass")])
@@ -152,7 +148,7 @@ def test_expected_rate_uses_relative_tolerance_despite_rounding():
     assert result.status == "fail"
     assert result.threshold == CheckConfig().sample_rate_rel_tol
     assert "expected 120 Hz" in result.message
-    assert "measured 125 Hz" in result.message
+    assert "measured 128" in result.message
 
 
 @pytest.mark.parametrize("index", [10, 500, 989])
@@ -238,9 +234,7 @@ def test_derivative_pair_not_testable(time, position, velocity):
 
 def test_run_checks():
     time = np.arange(1000) * 0.02
-    frame = pd.DataFrame(
-        {"time": time, "position": np.sin(time), "velocity": np.cos(time)}
-    )
+    frame = pd.DataFrame({"time": time, "position": np.sin(time), "velocity": np.cos(time)})
     config = CheckConfig(
         spike_window=315,
         derivative_pairs=(("position", "velocity"), ("missing", "velocity")),
@@ -257,10 +251,7 @@ def test_run_checks():
 
 
 def test_config_thresholds():
-    assert (
-        duration(np.arange(100) * 0.1, "r", CheckConfig(min_duration_s=9)).status
-        == "pass"
-    )
+    assert duration(np.arange(100) * 0.1, "r", CheckConfig(min_duration_s=9)).status == "pass"
     assert (
         non_finite(
             np.r_[np.ones(99), np.nan], "r", "x", CheckConfig(non_finite_fraction=0.01)

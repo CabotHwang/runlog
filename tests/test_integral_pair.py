@@ -43,7 +43,9 @@ def test_sample_rate_configuration_is_used():
     time = np.arange(6000) * 0.05
     config = CheckConfig(expected_rate_hz=10)
     assert sample_rate(time, "r", config).status == "fail"
-    assert derivative_pair(time, np.sin(time), np.cos(time), "r", "x", config).status == "not_testable"
+    assert (
+        derivative_pair(time, np.sin(time), np.cos(time), "r", "x", config).status == "not_testable"
+    )
 
 
 @pytest.mark.parametrize("score,status", [(0.04, "pass"), (0.06, "fail")])
@@ -51,8 +53,14 @@ def test_constant_velocity_offset_limit(score, status):
     time = np.arange(6000) * 0.05
     position = time.copy()
     offset = score * np.std(position) / 1.2
-    result = derivative_pair(time, position, np.full(len(time), 1 + offset), "r", "x",
-                             CheckConfig(derivative_pair_span_s=1.2))
+    result = derivative_pair(
+        time,
+        position,
+        np.full(len(time), 1 + offset),
+        "r",
+        "x",
+        CheckConfig(derivative_pair_span_s=1.2),
+    )
     assert result.value == pytest.approx(score)
     assert result.status == status
 
@@ -79,8 +87,9 @@ def test_slow_sine_across_sampling_rates(rate, fault):
 def test_slow_sine_velocity_shift():
     time = np.arange(6000) / 10
     omega = 2 * np.pi * 0.2
-    result = derivative_pair(time, np.sin(omega * time),
-                             np.roll(omega * np.cos(omega * time), 2), "r", "x")
+    result = derivative_pair(
+        time, np.sin(omega * time), np.roll(omega * np.cos(omega * time), 2), "r", "x"
+    )
     assert result.status == "fail"
 
 
@@ -94,8 +103,9 @@ def test_invalid_pair_span(span):
 def test_automatic_span_and_message(rate, steps):
     time = np.arange(600 * rate) / rate
     omega = 2 * np.pi * 0.2
-    result = derivative_pair(time, 10 + np.sin(omega * time),
-                             omega * np.cos(omega * time), "r", "x")
+    result = derivative_pair(
+        time, 10 + np.sin(omega * time), omega * np.cos(omega * time), "r", "x"
+    )
     assert f"span {steps} steps ({steps / rate:g} s)" in result.message
 
 
@@ -104,14 +114,17 @@ def test_override_uses_nearest_even_span(span, steps):
     time = np.arange(6000) / 10
     omega = 2 * np.pi * 0.2
     config = CheckConfig(derivative_pair_span_s=span)
-    result = derivative_pair(time, np.sin(omega * time),
-                             1.1 * omega * np.cos(omega * time), "r", "x", config)
+    result = derivative_pair(
+        time, np.sin(omega * time), 1.1 * omega * np.cos(omega * time), "r", "x", config
+    )
     weights = np.ones(steps + 1)
     weights[1:-1:2], weights[2:-1:2] = 4, 2
     velocity = 1.1 * omega * np.cos(omega * time)
     integral = np.convolve(velocity, weights, mode="valid") / 30
     residual = np.sin(omega * time[steps:]) - np.sin(omega * time[:-steps]) - integral
-    assert result.value == pytest.approx(np.sqrt(np.mean(residual**2)) / np.std(np.sin(omega * time)))
+    assert result.value == pytest.approx(
+        np.sqrt(np.mean(residual**2)) / np.std(np.sin(omega * time))
+    )
     assert f"span {steps} steps" in result.message
 
 
@@ -129,8 +142,13 @@ def test_four_span_boundary(samples, status):
 
 def test_automatic_span_rejects_short_record():
     time = np.arange(40) / 10
-    result = derivative_pair(time, np.sin(2 * np.pi * 0.2 * time),
-                             2 * np.pi * 0.2 * np.cos(2 * np.pi * 0.2 * time), "r", "x")
+    result = derivative_pair(
+        time,
+        np.sin(2 * np.pi * 0.2 * time),
+        2 * np.pi * 0.2 * np.cos(2 * np.pi * 0.2 * time),
+        "r",
+        "x",
+    )
     assert result.status == "not_testable"
 
 

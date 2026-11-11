@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .manifest import sha256_file
+from .manifest import _verify_parquet, sha256_file
 from .schema import Channel, RecordMeta, validate_record_id
 
 
@@ -35,23 +35,28 @@ def read_csv(path: str | Path, time_column: str = "time") -> pd.DataFrame:
 def read_openfast_out(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
     """Read a text OpenFAST log and its channel units."""
     lines = Path(path).read_text(encoding="utf-8").splitlines()
-    header = next((index for index, line in enumerate(lines)
-                   if line.split() and line.split()[0] == "Time"), None)
+    header = next(
+        (index for index, line in enumerate(lines) if line.split() and line.split()[0] == "Time"),
+        None,
+    )
     if header is None or header + 1 >= len(lines):
         raise ValueError("missing OpenFAST Time header or units")
     names = lines[header].split()
     units = lines[header + 1].split()
     if len(names) != len(set(names)) or len(units) != len(names):
-        raise ValueError("invalid OpenFAST header: channel names must be unique and match the units row")
+        raise ValueError(
+            "invalid OpenFAST header: channel names must be unique and match the units row"
+        )
     try:
-        rows = [[float(value) for value in line.split()]
-                for line in lines[header + 2:] if line.strip()]
+        rows = [
+            [float(value) for value in line.split()] for line in lines[header + 2 :] if line.strip()
+        ]
         if any(len(row) != len(names) for row in rows):
             raise ValueError("row width does not match header")
         frame = pd.DataFrame(rows, columns=names, dtype=np.float64)
     except ValueError as exc:
         raise ValueError("invalid OpenFAST numeric rows") from exc
-    return _normalize_time(frame, "Time"), dict(zip(names[1:], map(_unit, units[1:])))
+    return _normalize_time(frame, "Time"), dict(zip(names[1:], map(_unit, units[1:]), strict=True))
 
 
 def _read_binary(stream, count: int, dtype: str) -> np.ndarray:
@@ -67,13 +72,15 @@ def _read_binary(stream, count: int, dtype: str) -> np.ndarray:
 
 
 def _binary_labels(stream, channels: int, width: int) -> tuple[list[str], dict[str, str]]:
-    names = [value.decode("ascii").strip() for value in
-             _read_binary(stream, channels + 1, f"S{width}")]
-    units = [value.decode("ascii").strip() for value in
-             _read_binary(stream, channels + 1, f"S{width}")]
+    names = [
+        value.decode("ascii").strip() for value in _read_binary(stream, channels + 1, f"S{width}")
+    ]
+    units = [
+        value.decode("ascii").strip() for value in _read_binary(stream, channels + 1, f"S{width}")
+    ]
     if names[0] != "Time" or len(names) != len(set(names)) or "time" in names:
         raise ValueError("invalid OpenFAST binary channel names")
-    return names, dict(zip(names[1:], map(_unit, units[1:])))
+    return names, dict(zip(names[1:], map(_unit, units[1:]), strict=True))
 
 
 def read_openfast_outb(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
@@ -81,7 +88,9 @@ def read_openfast_outb(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
     with Path(path).open("rb") as stream:
         file_id = int(_read_binary(stream, 1, "<i2")[0])
         if file_id not in (1, 2, 3, 4):
-            raise ValueError(f"unsupported OpenFAST binary FileID: {file_id}; expected 1, 2, 3 or 4")
+            raise ValueError(
+                f"unsupported OpenFAST binary FileID: {file_id}; expected 1, 2, 3 or 4"
+            )
         width = int(_read_binary(stream, 1, "<i2")[0]) if file_id == 4 else 10
         if width < 1:
             raise ValueError("invalid OpenFAST binary channel width")
@@ -113,8 +122,11 @@ def read_openfast_outb(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
 
 
 def write_record(
-    frame: pd.DataFrame, dataset: str | Path, record_id: str,
-    units: dict[str, str], source: str | Path,
+    frame: pd.DataFrame,
+    dataset: str | Path,
+    record_id: str,
+    units: dict[str, str],
+    source: str | Path,
     attrs: dict[str, int | float | str | bool] | None = None,
     overwrite: bool = False,
 ) -> RecordMeta:
@@ -140,7 +152,9 @@ def write_record(
         raise ValueError(f"record already exists: {record_id}")
     records.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(parquet, index=False)
-    meta = RecordMeta(record_id, channels, meta.attrs, source_name, len(frame), sha256_file(parquet))
+    meta = RecordMeta(
+        record_id, channels, meta.attrs, source_name, len(frame), sha256_file(parquet)
+    )
     meta.to_json(sidecar)
     for folder in ("checks", "segments"):
         (Path(dataset) / folder / f"{record_id}.json").unlink(missing_ok=True)
@@ -148,8 +162,14 @@ def write_record(
 
 
 def load_record(dataset: str | Path, record_id: str) -> tuple[pd.DataFrame, RecordMeta]:
-    """Read a Parquet record and its validated JSON sidecar."""
+    """Read a record after checking its hash and metadata contract."""
     validate_record_id(record_id)
     records = Path(dataset) / "records"
     meta = RecordMeta.from_json(records / f"{record_id}.json")
-    return pd.read_parquet(records / f"{record_id}.parquet"), meta
+    if meta.record_id != record_id:
+        raise ValueError(f"record_id mismatch: records/{record_id}.json")
+    parquet = records / f"{record_id}.parquet"
+    errors = _verify_parquet(parquet, meta)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return pd.read_parquet(parquet), meta

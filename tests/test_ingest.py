@@ -10,8 +10,9 @@ def test_csv_roundtrip(tmp_path):
     path.write_text("t,sway,label\n0,1,10\n0.2,2,20\n0.1,3,30\n4,4,40\n")
     frame = read_csv(path, time_column="t")
     assert frame.time.dtype == np.float64
-    meta = write_record(frame, tmp_path / "dataset", "run", {"sway": "m", "label": "-"},
-                        path, {"vr": 5})
+    meta = write_record(
+        frame, tmp_path / "dataset", "run", {"sway": "m", "label": "-"}, path, {"vr": 5}
+    )
     restored, restored_meta = load_record(tmp_path / "dataset", "run")
     pd.testing.assert_frame_equal(restored, frame)
     assert meta == restored_meta
@@ -44,9 +45,14 @@ def test_overwrite(tmp_path, remaining):
     assert load_record(tmp_path, "r")[1].source == "r.csv"
 
 
-@pytest.mark.parametrize("content,time_column", [
-    ("x\n1\n", "time"), ("time\nhello\n", "time"), ("t,time\n1,2\n", "t"),
-])
+@pytest.mark.parametrize(
+    "content,time_column",
+    [
+        ("x\n1\n", "time"),
+        ("time\nhello\n", "time"),
+        ("t,time\n1,2\n", "t"),
+    ],
+)
 def test_bad_csv(tmp_path, content, time_column):
     path = tmp_path / "bad.csv"
     path.write_text(content)
@@ -54,10 +60,17 @@ def test_bad_csv(tmp_path, content, time_column):
         read_csv(path, time_column)
 
 
-@pytest.mark.parametrize("content", [
-    "no header", "Time X", "Time X\n(s)\n", "Time X X\n(s) (m) (m)\n",
-    "Time X\n(s) (m)\n0 bad\n", "Time X\n(s) (m)\n0 1 2\n",
-])
+@pytest.mark.parametrize(
+    "content",
+    [
+        "no header",
+        "Time X",
+        "Time X\n(s)\n",
+        "Time X X\n(s) (m) (m)\n",
+        "Time X\n(s) (m)\n0 bad\n",
+        "Time X\n(s) (m)\n0 1 2\n",
+    ],
+)
 def test_bad_openfast(tmp_path, content):
     path = tmp_path / "bad.out"
     path.write_text(content)

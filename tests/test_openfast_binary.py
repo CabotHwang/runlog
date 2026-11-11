@@ -67,10 +67,14 @@ def test_binary_unsupported_id(tmp_path, capsys, file_id):
     assert "FileID" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("names,units", [
-    (["Other", "Sway", "Fx"], None), (["Time", "Fx", "Fx"], None),
-    (["Time", "time", "Fx"], None),
-])
+@pytest.mark.parametrize(
+    "names,units",
+    [
+        (["Other", "Sway", "Fx"], None),
+        (["Time", "Fx", "Fx"], None),
+        (["Time", "time", "Fx"], None),
+    ],
+)
 def test_binary_invalid_labels(tmp_path, names, units):
     content, _ = binary_fixture(2, names, units)
     path = tmp_path / "bad.outb"
@@ -80,11 +84,14 @@ def test_binary_invalid_labels(tmp_path, names, units):
 
 
 @pytest.mark.parametrize("file_id", [1, 2, 3, 4])
-@pytest.mark.parametrize("units,expected", [
-    (["s", "m", "N"], {"Sway": "m", "Fx": "N"}),
-    (["(s)", "", "()"], {"Sway": "-", "Fx": "-"}),
-    (["s", "(m)", "-"], {"Sway": "m", "Fx": "-"}),
-])
+@pytest.mark.parametrize(
+    "units,expected",
+    [
+        (["s", "m", "N"], {"Sway": "m", "Fx": "N"}),
+        (["(s)", "", "()"], {"Sway": "-", "Fx": "-"}),
+        (["s", "(m)", "-"], {"Sway": "m", "Fx": "-"}),
+    ],
+)
 def test_binary_units_accept_bare_wrapped_and_empty(tmp_path, file_id, units, expected):
     content, _ = binary_fixture(file_id, names=["Time", "Sway", "Fx"], units=units)
     path = tmp_path / "units.outb"
@@ -94,16 +101,22 @@ def test_binary_units_accept_bare_wrapped_and_empty(tmp_path, file_id, units, ex
     assert {c.name: c.unit for c in load_record(tmp_path / "data", "units")[1].channels} == expected
 
 
-@pytest.mark.parametrize("position,dtype,value,message", [
-    (2, "<i4", -1, "counts"), (6, "<i4", 0, "counts"),
-    (42, "<i4", -1, "negative length"), (10, "<f8", 0, "time scale"),
-    (26, "<f4", 0, "channel scale"), (34, "<f4", np.inf, "channel scale"),
-])
+@pytest.mark.parametrize(
+    "position,dtype,value,message",
+    [
+        (2, "<i4", -1, "counts"),
+        (6, "<i4", 0, "counts"),
+        (42, "<i4", -1, "negative length"),
+        (10, "<f8", 0, "time scale"),
+        (26, "<f4", 0, "channel scale"),
+        (34, "<f4", np.inf, "channel scale"),
+    ],
+)
 def test_binary_invalid_header(tmp_path, position, dtype, value, message):
     content, _ = binary_fixture(1)
     content = bytearray(content)
     replacement = np.array([value], dtype=dtype).tobytes()
-    content[position:position + len(replacement)] = replacement
+    content[position : position + len(replacement)] = replacement
     path = tmp_path / "bad.outb"
     path.write_bytes(content)
     with pytest.raises(ValueError, match=message):
@@ -114,7 +127,7 @@ def test_binary_nan_scale_and_offset_represent_constant(tmp_path):
     content, expected = binary_fixture(2)
     content = bytearray(content)
     for position in (26, 34):
-        content[position:position + 4] = np.array([np.nan], dtype="<f4").tobytes()
+        content[position : position + 4] = np.array([np.nan], dtype="<f4").tobytes()
     path = tmp_path / "constant.outb"
     path.write_bytes(content)
     frame, _ = read_openfast_outb(path)
